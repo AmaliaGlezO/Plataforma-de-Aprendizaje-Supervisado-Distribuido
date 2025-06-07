@@ -1,0 +1,16 @@
+version: '3'
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.training
+    volumes:
+      - ./data:/app/data
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.serving
+    ports:
+      - "8000:8000"
+    depends_on:
+      - trainer
