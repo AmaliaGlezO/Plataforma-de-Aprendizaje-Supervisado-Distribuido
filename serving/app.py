@@ -1,64 +1,51 @@
 #!/usr/bin/env python3
 """
 API REST para servir modelos de predicción de déficit energético
-Usando FastAPI y los modelos entrenados con Ray
+Desarrollado con FastAPI para máximo rendimiento y documentación automática
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from pydantic import BaseModel, Field, validator
+from typing import List, Dict, Any, Optional
 import joblib
-import os
-import glob
 import pandas as pd
 import numpy as np
-from datetime import datetime
+import os
 import logging
-import asyncio
+from datetime import datetime
+import json
 from pathlib import Path
+import asyncio
+from contextlib import asynccontextmanager
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicializar FastAPI
-app = FastAPI(
-    title="Energy Deficit Prediction API",
-    description="API para predicción de déficit energético usando modelos distribuidos",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
+# Modelos cargados en memoria (cache global)
+loaded_models = {}
 
-# Configurar CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Cache de modelos en memoria
-model_cache = {}
-MODELS_DIR = "models/"
-
-# Modelos de datos para la API
-class EnergyData(BaseModel):
-    """Modelo de datos de entrada para predicción"""
+class PredictionInput(BaseModel):
+    """Esquema de entrada para predicciones"""
     disponibilidad: float = Field(..., description="Disponibilidad de energía (MW)")
-    demanda_maxima: float = Field(..., description="Demanda máxima de energía (MW)")
+    demanda_maxima: float = Field(..., description="Demanda máxima esperada (MW)")
     afectacion: float = Field(..., description="Afectación del sistema (MW)")
     respaldo: int = Field(..., ge=0, le=1, description="Sistema de respaldo activo (0/1)")
     horario_pico: int = Field(..., ge=0, le=23, description="Hora del día (0-23)")
     unidades_averia: int = Field(..., ge=0, description="Número de unidades en avería")
-    unidades_mantenimiento: int = Field(..., ge=0, description="Número de unidades en mantenimiento")
+    unidades_mantenimiento: int = Field(..., ge=0, description="Unidades en mantenimiento")
     limitacion_termica: float = Field(..., description="Limitación térmica (MW)")
     motores_impacto: float = Field(..., description="Impacto de motores (MW)")
     year: int = Field(..., ge=2020, le=2030, description="Año")
     month: int = Field(..., ge=1, le=12, description="Mes (1-12)")
-
+    
+    @validator('disponibilidad', 'demanda_maxima', 'afectacion', 'limitacion_termica', 'motores_impacto')
+    def validate_positive_values(cls, v):
+        if v < 0:
+            raise ValueError('Los valores de energía deben ser positivos')
+        return v
+    
     class Config:
         schema_extra = {
             "example": {
@@ -76,337 +63,312 @@ class EnergyData(BaseModel):
             }
         }
 
-class BatchEnergyData(BaseModel):
-    """Modelo para predicciones en lote"""
-    data: List[EnergyData] = Field(..., description="Lista de datos para predicción")
+class BatchPredictionInput(BaseModel):
+    """Esquema para predicciones en lote"""
+    data: List[PredictionInput] = Field(..., description="Lista de inputs para predicción")
+    
+    @validator('data')
+    def validate_batch_size(cls, v):
+        if len(v) > 1000:
+            raise ValueError('Máximo 1000 predicciones por lote')
+        return v
 
-class PredictionResponse(BaseModel):
-    """Respuesta de predicción"""
+class PredictionOutput(BaseModel):
+    """Esquema de salida para predicciones"""
     model_name: str
     predicted_deficit: float
-    confidence_score: Optional[float] = None
-    processing_time_ms: float
-
-class BatchPredictionResponse(BaseModel):
-    """Respuesta de predicción en lote"""
-    model_name: str
-    predictions: List[float]
-    processing_time_ms: float
-    total_samples: int
+    confidence_interval: Optional[Dict[str, float]] = None
+    prediction_timestamp: str
+    input_data: Dict[str, Any]
+    model_info: Dict[str, Any]
 
 class ModelInfo(BaseModel):
-    """Información del modelo"""
+    """Información de un modelo disponible"""
     name: str
     type: str
     metrics: Dict[str, float]
     trained_at: str
-    file_size_kb: float
-    is_loaded: bool
+    feature_columns: List[str]
+    file_size_mb: float
+    status: str
 
-class HealthResponse(BaseModel):
-    """Respuesta de health check"""
+class HealthCheck(BaseModel):
+    """Estado de salud de la API"""
     status: str
     timestamp: str
     models_loaded: int
-    total_models: int
+    uptime_seconds: float
 
-# Funciones utilitarias
-def get_available_models() -> List[str]:
-    """Obtener lista de modelos disponibles"""
-    if not os.path.exists(MODELS_DIR):
-        return []
+# Startup event para cargar modelos
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestión del ciclo de vida de la aplicación"""
+    # Startup
+    logger.info("🚀 Iniciando API de Serving ML...")
+    await load_all_models()
+    logger.info(f"✅ API lista con {len(loaded_models)} modelos cargados")
     
-    model_files = glob.glob(os.path.join(MODELS_DIR, "*.joblib"))
-    model_names = [os.path.basename(f).replace('.joblib', '') for f in model_files]
-    return model_names
+    yield
+    
+    # Shutdown
+    logger.info("🔄 Cerrando API...")
+    loaded_models.clear()
 
-def load_model(model_name: str) -> Dict[str, Any]:
-    """Cargar un modelo desde disco"""
-    model_path = os.path.join(MODELS_DIR, f"{model_name}.joblib")
-    
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Modelo no encontrado: {model_name}")
-    
-    try:
-        model_package = joblib.load(model_path)
-        logger.info(f"Modelo cargado: {model_name}")
-        return model_package
-    except Exception as e:
-        logger.error(f"Error cargando modelo {model_name}: {str(e)}")
-        raise
+# Crear aplicación FastAPI
+app = FastAPI(
+    title="API de Predicción de Déficit Energético",
+    description="API REST para servir modelos de ML entrenados con Ray",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan
+)
 
-def get_model_info(model_name: str) -> ModelInfo:
-    """Obtener información detallada de un modelo"""
-    model_path = os.path.join(MODELS_DIR, f"{model_name}.joblib")
-    
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Modelo no encontrado: {model_name}")
-    
-    # Tamaño del archivo
-    file_size_kb = os.path.getsize(model_path) / 1024
-    
-    # Cargar información del modelo
-    try:
-        model_package = joblib.load(model_path)
-        
-        return ModelInfo(
-            name=model_name,
-            type=model_package.get('model_type', 'unknown'),
-            metrics=model_package.get('metrics', {}),
-            trained_at=model_package.get('trained_at', 'unknown'),
-            file_size_kb=round(file_size_kb, 2),
-            is_loaded=model_name in model_cache
-        )
-    except Exception as e:
-        logger.error(f"Error obteniendo info del modelo {model_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error accediendo al modelo: {str(e)}")
+# Configurar CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def prepare_features(data: EnergyData) -> np.ndarray:
-    """Preparar features para predicción"""
-    feature_order = [
+# Variable para tracking del tiempo de inicio
+start_time = datetime.now()
+
+async def load_all_models():
+    """Cargar todos los modelos disponibles en memoria"""
+    models_dir = Path("models")
+    
+    if not models_dir.exists():
+        logger.warning(f"Directorio de modelos no encontrado: {models_dir}")
+        return
+    
+    model_files = list(models_dir.glob("*.joblib"))
+    
+    if not model_files:
+        logger.warning("No se encontraron modelos entrenados")
+        return
+    
+    for model_file in model_files:
+        try:
+            model_name = model_file.stem
+            
+            # Cargar modelo
+            model_package = joblib.load(model_file)
+            
+            # Validar estructura del modelo
+            required_keys = ['model', 'feature_columns', 'model_type', 'metrics']
+            if not all(key in model_package for key in required_keys):
+                logger.error(f"Modelo {model_name} tiene estructura inválida")
+                continue
+            
+            # Agregar metadata adicional
+            model_package['file_path'] = str(model_file)
+            model_package['file_size_mb'] = model_file.stat().st_size / (1024 * 1024)
+            model_package['loaded_at'] = datetime.now().isoformat()
+            
+            loaded_models[model_name] = model_package
+            
+            logger.info(f"✓ Modelo cargado: {model_name} ({model_package['model_type']})")
+            
+        except Exception as e:
+            logger.error(f"Error cargando modelo {model_file}: {str(e)}")
+
+def prepare_input_features(input_data: PredictionInput) -> np.ndarray:
+    """Preparar features de entrada para predicción"""
+    feature_columns = [
         'disponibilidad', 'demanda_maxima', 'afectacion', 'respaldo',
         'horario_pico', 'unidades_averia', 'unidades_mantenimiento',
         'limitacion_termica', 'motores_impacto', 'year', 'month'
     ]
     
+    # Crear array con las features en el orden correcto
     features = []
-    for feature in feature_order:
-        features.append(getattr(data, feature))
+    for col in feature_columns:
+        features.append(getattr(input_data, col))
     
     return np.array(features).reshape(1, -1)
-
-def prepare_batch_features(data_list: List[EnergyData]) -> np.ndarray:
-    """Preparar features para predicción en lote"""
-    feature_order = [
-        'disponibilidad', 'demanda_maxima', 'afectacion', 'respaldo',
-        'horario_pico', 'unidades_averia', 'unidades_mantenimiento',
-        'limitacion_termica', 'motores_impacto', 'year', 'month'
-    ]
-    
-    features_list = []
-    for data in data_list:
-        features = []
-        for feature in feature_order:
-            features.append(getattr(data, feature))
-        features_list.append(features)
-    
-    return np.array(features_list)
-
-# Endpoints de la API
 
 @app.get("/", response_model=Dict[str, str])
 async def root():
     """Endpoint raíz con información básica"""
     return {
-        "message": "Energy Deficit Prediction API",
+        "message": "API de Predicción de Déficit Energético",
         "version": "1.0.0",
         "docs": "/docs",
+        "models": "/models",
         "health": "/health"
     }
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthCheck)
 async def health_check():
-    """Health check del servicio"""
-    available_models = get_available_models()
-    loaded_models = len(model_cache)
+    """Verificar estado de salud de la API"""
+    uptime = (datetime.now() - start_time).total_seconds()
     
-    return HealthResponse(
-        status="healthy",
+    return HealthCheck(
+        status="healthy" if loaded_models else "warning",
         timestamp=datetime.now().isoformat(),
-        models_loaded=loaded_models,
-        total_models=len(available_models)
+        models_loaded=len(loaded_models),
+        uptime_seconds=uptime
     )
 
-@app.get("/models", response_model=List[str])
+@app.get("/models", response_model=List[ModelInfo])
 async def list_models():
     """Listar todos los modelos disponibles"""
-    try:
-        models = get_available_models()
-        logger.info(f"Modelos disponibles: {models}")
-        return models
-    except Exception as e:
-        logger.error(f"Error listando modelos: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error accediendo a modelos: {str(e)}")
+    if not loaded_models:
+        raise HTTPException(status_code=404, detail="No hay modelos disponibles")
+    
+    models_info = []
+    
+    for name, model_package in loaded_models.items():
+        model_info = ModelInfo(
+            name=name,
+            type=model_package['model_type'],
+            metrics=model_package['metrics'],
+            trained_at=model_package.get('trained_at', 'unknown'),
+            feature_columns=model_package['feature_columns'],
+            file_size_mb=round(model_package['file_size_mb'], 2),
+            status="loaded"
+        )
+        models_info.append(model_info)
+    
+    return models_info
 
 @app.get("/models/{model_name}", response_model=ModelInfo)
-async def get_model_details(model_name: str):
+async def get_model_info(model_name: str):
     """Obtener información detallada de un modelo específico"""
-    try:
-        return get_model_info(model_name)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Modelo no encontrado: {model_name}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if model_name not in loaded_models:
+        raise HTTPException(status_code=404, detail=f"Modelo '{model_name}' no encontrado")
+    
+    model_package = loaded_models[model_name]
+    
+    return ModelInfo(
+        name=model_name,
+        type=model_package['model_type'],
+        metrics=model_package['metrics'],
+        trained_at=model_package.get('trained_at', 'unknown'),
+        feature_columns=model_package['feature_columns'],
+        file_size_mb=round(model_package['file_size_mb'], 2),
+        status="loaded"
+    )
 
-@app.post("/models/{model_name}/load")
-async def load_model_endpoint(model_name: str):
-    """Cargar un modelo en memoria para uso rápido"""
-    try:
-        if model_name not in get_available_models():
-            raise HTTPException(status_code=404, detail=f"Modelo no encontrado: {model_name}")
-        
-        # Cargar modelo en cache
-        model_package = load_model(model_name)
-        model_cache[model_name] = model_package
-        
-        return {
-            "message": f"Modelo {model_name} cargado exitosamente",
-            "model_type": model_package.get('model_type', 'unknown'),
-            "cached": True
-        }
-    except Exception as e:
-        logger.error(f"Error cargando modelo {model_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/predict/{model_name}", response_model=PredictionResponse)
-async def predict(model_name: str, data: EnergyData):
-    """Realizar predicción con un modelo específico"""
-    start_time = datetime.now()
+@app.post("/predict/{model_name}", response_model=PredictionOutput)
+async def predict_with_model(model_name: str, input_data: PredictionInput):
+    """Hacer predicción con un modelo específico"""
+    
+    # Verificar que el modelo existe
+    if model_name not in loaded_models:
+        raise HTTPException(status_code=404, detail=f"Modelo '{model_name}' no encontrado")
     
     try:
-        # Verificar si el modelo existe
-        if model_name not in get_available_models():
-            raise HTTPException(status_code=404, detail=f"Modelo no encontrado: {model_name}")
-        
-        # Cargar modelo (desde cache o disco)
-        if model_name not in model_cache:
-            logger.info(f"Cargando modelo desde disco: {model_name}")
-            model_package = load_model(model_name)
-            model_cache[model_name] = model_package
-        else:
-            model_package = model_cache[model_name]
-        
-        # Preparar features
-        features = prepare_features(data)
-        
-        # Aplicar scaling si es necesario
+        model_package = loaded_models[model_name]
         model = model_package['model']
         scaler = model_package.get('scaler')
         
-        if scaler is not None:  # Para SVM y Linear Regression
+        # Preparar features
+        features = prepare_input_features(input_data)
+        
+        # Aplicar escalado si es necesario
+        if scaler is not None:
             features = scaler.transform(features)
         
-        # Realizar predicción
+        # Hacer predicción
         prediction = model.predict(features)[0]
         
-        # Calcular tiempo de procesamiento
-        processing_time = (datetime.now() - start_time).total_seconds() * 1000
-        
-        # Calcular confidence score (para modelos que lo soporten)
-        confidence_score = None
-        if hasattr(model, 'predict_proba'):
-            try:
-                # Para clasificadores, pero adaptamos para regresión
-                pass
-            except:
-                pass
-        
-        logger.info(f"Predicción realizada: {model_name} -> {prediction:.2f}")
-        
-        return PredictionResponse(
+        # Preparar respuesta
+        response = PredictionOutput(
             model_name=model_name,
-            predicted_deficit=float(prediction),
-            confidence_score=confidence_score,
-            processing_time_ms=round(processing_time, 2)
+            predicted_deficit=round(float(prediction), 2),
+            prediction_timestamp=datetime.now().isoformat(),
+            input_data=input_data.dict(),
+            model_info={
+                "type": model_package['model_type'],
+                "test_r2": model_package['metrics']['test_r2'],
+                "test_mae": model_package['metrics']['test_mae']
+            }
         )
         
-    except HTTPException:
-        raise
+        logger.info(f"Predicción realizada con {model_name}: {prediction:.2f}")
+        return response
+        
     except Exception as e:
         logger.error(f"Error en predicción con {model_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error en predicción: {str(e)}")
 
-@app.post("/predict/{model_name}/batch", response_model=BatchPredictionResponse)
-async def predict_batch(model_name: str, batch_data: BatchEnergyData):
+@app.post("/predict", response_model=PredictionOutput)
+async def predict_best_model(input_data: PredictionInput):
+    """Hacer predicción con el mejor modelo disponible (mayor R²)"""
+    
+    if not loaded_models:
+        raise HTTPException(status_code=404, detail="No hay modelos disponibles")
+    
+    # Encontrar el mejor modelo por R²
+    best_model_name = max(
+        loaded_models.keys(),
+        key=lambda name: loaded_models[name]['metrics']['test_r2']
+    )
+    
+    return await predict_with_model(best_model_name, input_data)
+
+@app.post("/predict/batch/{model_name}", response_model=List[PredictionOutput])
+async def batch_predict(model_name: str, batch_input: BatchPredictionInput):
     """Realizar predicciones en lote con un modelo específico"""
-    start_time = datetime.now()
+    
+    if model_name not in loaded_models:
+        raise HTTPException(status_code=404, detail=f"Modelo '{model_name}' no encontrado")
     
     try:
-        # Verificar si el modelo existe
-        if model_name not in get_available_models():
-            raise HTTPException(status_code=404, detail=f"Modelo no encontrado: {model_name}")
+        predictions = []
         
-        # Cargar modelo (desde cache o disco)
-        if model_name not in model_cache:
-            logger.info(f"Cargando modelo desde disco: {model_name}")
-            model_package = load_model(model_name)
-            model_cache[model_name] = model_package
-        else:
-            model_package = model_cache[model_name]
+        for input_data in batch_input.data:
+            prediction = await predict_with_model(model_name, input_data)
+            predictions.append(prediction)
         
-        # Preparar features en lote
-        features = prepare_batch_features(batch_data.data)
+        logger.info(f"Predicciones en lote completadas: {len(predictions)} predicciones")
+        return predictions
         
-        # Aplicar scaling si es necesario
-        model = model_package['model']
-        scaler = model_package.get('scaler')
-        
-        if scaler is not None:
-            features = scaler.transform(features)
-        
-        # Realizar predicciones
-        predictions = model.predict(features)
-        
-        # Calcular tiempo de procesamiento
-        processing_time = (datetime.now() - start_time).total_seconds() * 1000
-        
-        logger.info(f"Predicciones en lote: {model_name} -> {len(predictions)} muestras")
-        
-        return BatchPredictionResponse(
-            model_name=model_name,
-            predictions=[float(p) for p in predictions],
-            processing_time_ms=round(processing_time, 2),
-            total_samples=len(predictions)
-        )
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error en predicción batch con {model_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error en predicción batch: {str(e)}")
+        logger.error(f"Error en predicción en lote: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en predicción en lote: {str(e)}")
 
-@app.delete("/models/{model_name}/unload")
-async def unload_model(model_name: str):
-    """Descargar un modelo de la memoria"""
-    if model_name in model_cache:
-        del model_cache[model_name]
-        return {"message": f"Modelo {model_name} descargado de memoria"}
-    else:
-        raise HTTPException(status_code=404, detail=f"Modelo {model_name} no está cargado en memoria")
+@app.post("/reload-models")
+async def reload_models(background_tasks: BackgroundTasks):
+    """Recargar todos los modelos desde disco"""
+    
+    def reload_task():
+        loaded_models.clear()
+        asyncio.run(load_all_models())
+    
+    background_tasks.add_task(reload_task)
+    
+    return {"message": "Recarga de modelos iniciada en segundo plano"}
 
-@app.get("/cache/status")
-async def cache_status():
-    """Estado del cache de modelos"""
+@app.get("/stats")
+async def get_api_stats():
+    """Obtener estadísticas de la API"""
+    uptime = (datetime.now() - start_time).total_seconds()
+    
+    model_stats = {}
+    for name, model_package in loaded_models.items():
+        model_stats[name] = {
+            "type": model_package['model_type'],
+            "test_r2": model_package['metrics']['test_r2'],
+            "test_mae": model_package['metrics']['test_mae'],
+            "size_mb": round(model_package['file_size_mb'], 2)
+        }
+    
     return {
-        "cached_models": list(model_cache.keys()),
-        "cache_size": len(model_cache),
-        "available_models": get_available_models()
+        "uptime_seconds": uptime,
+        "models_loaded": len(loaded_models),
+        "model_stats": model_stats,
+        "timestamp": datetime.now().isoformat()
     }
-
-# Event handlers
-@app.on_event("startup")
-async def startup_event():
-    """Eventos de inicio de la aplicación"""
-    logger.info("🚀 Iniciando Energy Deficit Prediction API")
-    logger.info(f"Directorio de modelos: {MODELS_DIR}")
-    
-    # Verificar directorio de modelos
-    if not os.path.exists(MODELS_DIR):
-        logger.warning(f"Directorio de modelos no existe: {MODELS_DIR}")
-        os.makedirs(MODELS_DIR, exist_ok=True)
-    
-    # Listar modelos disponibles
-    available_models = get_available_models()
-    logger.info(f"Modelos disponibles: {available_models}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Eventos de cierre de la aplicación"""
-    logger.info("🔄 Cerrando Energy Deficit Prediction API")
-    model_cache.clear()
 
 if __name__ == "__main__":
     import uvicorn
+    
+    logger.info("🚀 Iniciando servidor de desarrollo...")
     uvicorn.run(
         "app:app",
         host="0.0.0.0",

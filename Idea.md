@@ -1,157 +1,224 @@
+# Arquitectura - Plataforma de Entrenamiento Supervisado Distribuido
+
+## 🏗️ Visión General del Sistema
+
+La plataforma se estructura en **4 capas principales** que trabajan de forma coordinada:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    CAPA DE INTERFAZ                     │
+│  [API REST] + [Dashboard Web] + [Monitoreo]            │
+└─────────────────────────────────────────────────────────┘
+                            │
+┌─────────────────────────────────────────────────────────┐
+│                CAPA DE ORQUESTACIÓN                    │
+│         [Ray Cluster] + [Task Manager]                 │
+└─────────────────────────────────────────────────────────┘
+                            │
+┌─────────────────────────────────────────────────────────┐
+│                  CAPA DE PROCESAMIENTO                 │
+│  [Training Workers] + [Model Serving] + [Data Pipeline]│
+└─────────────────────────────────────────────────────────┘
+                            │
+┌─────────────────────────────────────────────────────────┐
+│               CAPA DE INFRAESTRUCTURA                  │
+│    [Docker Containers] + [Storage] + [Network]         │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 🔧 Componentes Principales
+
+### 1. **Ray Cluster Manager** (Cerebro del Sistema)
+**Función:** Coordina todo el trabajo distribuido
+- **Ray Head Node:** Nodo líder que coordina tareas
+- **Ray Worker Nodes:** Nodos que ejecutan el entrenamiento
+- **Ray Dashboard:** Interfaz para monitorear el cluster
+
+**Responsabilidades:**
+- Distribuir tareas de entrenamiento entre nodos
+- Gestionar recursos (CPU/RAM/GPU)
+- Recuperación automática ante fallos
+- Balanceo de carga dinámico
+
+### 2. **API Gateway** (Punto de Entrada)
+**Función:** Interfaz unificada para interactuar con la plataforma
+
+**Endpoints principales:**
+```
+POST /api/train          # Iniciar entrenamiento
+GET  /api/jobs/{id}      # Estado del entrenamiento  
+POST /api/predict        # Hacer predicciones
+GET  /api/models         # Listar modelos disponibles
+GET  /api/metrics        # Métricas del sistema
+```
+
+**Características:**
+- Autenticación y autorización
+- Rate limiting
+- Validación de requests
+- Logging centralizado
+
+### 3. **Training Engine** (Motor de Entrenamiento)
+**Función:** Ejecuta el entrenamiento distribuido de modelos
+
+**Componentes:**
+- **Data Loader:** Carga y preprocesa datasets
+- **Model Factory:** Crea instancias de modelos (Scikit-Learn)
+- **Training Orchestrator:** Coordina entrenamientos paralelos
+- **Model Validator:** Evalúa rendimiento de modelos
+
+**Flujo de trabajo:**
+```
+Dataset → Preprocessing → Model Creation → Distributed Training → Validation → Storage
+```
+
+### 4. **Model Serving** (Servicio de Modelos)
+**Función:** Sirve modelos entrenados para inferencia
+
+**Características:**
+- Load balancing entre réplicas
+- Versionado de modelos
+- A/B testing
+- Caché de predicciones frecuentes
+
+### 5. **Monitoring & Visualization** (Monitoreo)
+**Función:** Observabilidad completa del sistema
+
+**Métricas monitoreadas:**
+- **Entrenamiento:** Accuracy, loss, tiempo de convergencia
+- **Infraestructura:** CPU, RAM, GPU, red, almacenamiento  
+- **API:** Latencia, throughput, errores
+- **Modelos:** Deriva de datos, performance en producción
+
+## 🐳 Arquitectura Docker
+
+### Contenedores del Sistema:
+
+```yaml
+# docker-compose.yml estructura
+services:
+  ray-head:          # Nodo coordinador Ray
+  ray-worker-1:      # Nodo trabajador Ray #1  
+  ray-worker-2:      # Nodo trabajador Ray #2
+  ray-worker-n:      # Nodos adicionales (escalable)
+  
+  api-gateway:       # API REST principal
+  model-server:      # Servidor de modelos
+  
+  monitoring:        # Dashboard de métricas
+  database:          # Metadatos y resultados
+  storage:           # Almacén de modelos y datos
+```
+
+### Red Docker y Autodescubrimiento:
+- **Red personalizada:** `ml-platform-network`
+- **Service Discovery:** Contenedores se encuentran por nombre
+- **Health Checks:** Verificación automática de salud
+- **Restart Policies:** Reinicio automático ante fallos
+
+## 🔄 Flujos de Trabajo Principales
+
+### A. Flujo de Entrenamiento Distribuido
+
+```mermaid
 graph TD
-    A[Ray Head Node] -->|Gestiona| B[Ray Worker 1]
-    A -->|Gestiona| C[Ray Worker 2]
-    A -->|Gestiona| D[Ray Worker N]
-    E[API Service] -->|Consulta| F[Model Registry]
-    G[Monitoring Service] -->|Recoge métricas| B
-    G -->|Recoge métricas| C
-    G -->|Recoge métricas| D
-    H[Clientes] -->|Predicciones| E
+    A[Usuario envía dataset via API] --> B[API valida y almacena datos]
+    B --> C[Ray Head recibe tarea de entrenamiento]
+    C --> D[Ray divide dataset en particiones]
+    D --> E[Ray distribuye tareas a Workers]
+    E --> F[Workers entrenan modelos en paralelo]
+    F --> G[Ray agrega resultados]
+    G --> H[Modelo final guardado y versionado]
+    H --> I[Notificación de completado]
+```
 
+### B. Flujo de Inferencia
 
-/proyecto-ml-distribuido/  
-│
-├── data/                  # Datasets etiquetados  
-├── models/                # Modelos entrenados serializados  
-├── training/              # Código de entrenamiento (con Ray)  
-├── serving/               # API REST para inferencia  
-├── monitor/               # Métricas y dashboards  
-├── docker/                # Dockerfiles por componente  
-├── scripts/               # Automatización y pruebas  
-├── requirements.txt  
-├── docker-compose.yml     # Orquestación local  
-└── README.md
+```mermaid
+graph TD
+    A[Request de predicción] --> B[API Gateway]
+    B --> C[Load Balancer selecciona modelo]
+    C --> D[Model Server procesa datos]
+    D --> E[Predicción generada]
+    E --> F[Respuesta enviada]
+    F --> G[Métricas actualizadas]
+```
 
+### C. Flujo de Tolerancia a Fallos
 
+```mermaid
+graph TD
+    A[Nodo Worker falla] --> B[Ray Head detecta fallo]
+    B --> C[Tareas se redistribuyen]
+    C --> D[Nuevo Worker se une al cluster]
+    D --> E[Entrenamiento continúa]
+```
 
-# 🧠 ETAPA 1 – Entrenamiento distribuido con Ray
-## 🎯 Objetivo: Entrenar varios modelos paralelamente sobre el mismo dataset
-- Crear archivo training/distributed_trainer.py
+## 🛡️ Tolerancia a Fallos
 
-- Define una función train_model.remote() con Ray
+### Estrategias Implementadas:
 
-- Usa Scikit-Learn (ej. RandomForest, SVM)
+1. **Replicación de Ray Head:**
+   - Múltiples nodos Head en standby
+   - Elección automática de líder
+   - Sincronización de estado
 
-- Guarda los modelos con joblib.dump() en models/
+2. **Checkpointing:**
+   - Guardado periódico del estado de entrenamiento
+   - Recuperación desde último checkpoint
+   - Almacenamiento distribuido de checkpoints
 
-En scripts/train_and_deploy.py:
+3. **Health Monitoring:**
+   - Heartbeat entre nodos
+   - Detección proactiva de fallos
+   - Escalado automático de recursos
 
-- Divide el dataset
+4. **Data Redundancy:**
+   - Réplicas de datasets críticos
+   - Backup automático de modelos
+   - Versionado de artefactos
 
-- Llama a train_model.remote() varias veces (con distintos hiperparámetros)
+## 📊 Monitoreo y Observabilidad
 
-- Espera y recoge resultados (ray.get)
+### Dashboard Principal muestra:
 
-- Verifica que se guardaron en models/
+**Vista de Cluster:**
+- Estado de nodos Ray (activos/inactivos)
+- Utilización de recursos por nodo
+- Cola de tareas pendientes
 
-✅ Hito funcional:
-Tienes varios modelos entrenados y guardados paralelamente
+**Vista de Entrenamientos:**
+- Progreso de entrenamientos activos
+- Métricas de rendimiento en tiempo real
+- Comparativa entre modelos
 
-# 🖥️ ETAPA 2 – API REST para inferencias (Serving)
-## 🎯 Objetivo: Permitir predicciones usando los modelos entrenados
-- Crear serving/app.py con FastAPI
+**Vista de Producción:**
+- Latencia de API endpoints
+- Throughput de predicciones
+- Errores y alertas
 
-- Endpoint GET /models: listar modelos entrenados
+## 🚀 Escalabilidad y Performance
 
-- Endpoint POST /predict: recibe input, carga modelo y predice
+### Escalado Horizontal:
+- **Workers dinámicos:** Ray añade/quita workers según demanda
+- **Auto-scaling:** Basado en métricas de CPU/memoria
+- **Resource quotas:** Límites por usuario/proyecto
 
-- Conectar API con los modelos guardados
+### Optimizaciones:
+- **Caching:** Resultados de preprocessing y predicciones
+- **Batching:** Agrupación de requests para eficiencia
+- **Model pruning:** Optimización de modelos para inferencia
+- **Compression:** Reducción de tamaño de modelos almacenados
 
-- Cargar modelos desde la carpeta models/
+## 🔒 Seguridad
 
-- Usar joblib.load() y model.predict()
+### Medidas de Seguridad:
+- **TLS/SSL:** Encriptación de comunicaciones
+- **API Keys:** Autenticación de usuarios
+- **Network isolation:** Contenedores en redes privadas
+- **Resource limits:** Prevención de DoS
+- **Audit logging:** Trazabilidad completa
 
-- Probar manualmente la API con curl o Postman
+---
 
-- Correr con Uvicorn
-
-✅ Hito funcional:
-Puedes hacer predicciones con cualquier modelo entrenado.
-
-# 📦 ETAPA 3 – Dockerización
-## 🎯 Objetivo: Empaquetar entrenamiento y API para reproducibilidad
-- Crear Dockerfile para API
-
-- Usa python:3.9
-
-- Copia requirements.txt
-
-- Expone puerto 8000
-
-- Crear docker-compose.yml
-
-- Servicio trainer: entrena modelos
-
-- Servicio api: responde peticiones
-
-- Volumen compartido: ./models:/models
-
-- Probar el entorno con  docker-compose up --build
-
-✅ Hito funcional:
-Toda la plataforma corre en contenedores.
-
-# 📈 ETAPA 4 – Monitoreo y visualización
-## 🎯 Objetivo: Ver métricas de entrenamiento e inferencia
-En monitor/metrics_collector.py:
-
-- Captura precisión, tiempo de entrenamiento, latencia de inferencias
-
-- Usa prometheus_client para exponer /metrics
-
-- Modificar entrenamiento e inferencia para registrar métricas
-
-- Agregar Prometheus a docker-compose.yml
-
-- Configura para recoger /metrics del API
-
-- (Opcional) Conectar con Grafana para dashboards
-
-✅ Hito funcional:
-Puedes ver gráficas de rendimiento en Prometheus/Grafana.
-
-# 🔒 ETAPA 5 – Seguridad y tolerancia a fallos
-## 🎯 Objetivo: Proteger la API y el sistema
-- En security/auth.py:
-
-- Añade autenticación JWT a la API
-
-- Protege POST /predict con token
-
-- En cluster/leader.py:
-
-- Simula detección de nodo líder
-
-- Autodescubrimiento de modelos por todos los nodos
-
-- Configura reintentos automáticos en Ray
-
-✅ Hito funcional:
-Sistema robusto, seguro y tolerante a fallos.
-
-# 🧪 ETAPA 6 – Funcionalidades adicionales
-### 🔁 Entrenamiento de múltiples datasets simultáneamente
-- Cargar varios datasets en paralelo, lanzar train_model.remote() para cada uno.
-
-### 📊 Comparativas entre modelos
-- Registrar métricas por modelo y mostrarlas en /metrics o una GUI.
-
-### 🖼️ GUI de gestión (opcional)
-- Usar Dash, Streamlit o React para mostrar:
-
-- Modelos entrenados
-
-- Resultados de inferencia
-
-- Estadísticas y tendencias
-
-# 🧹 ETAPA FINAL – CI/CD y pruebas
-- Crear scripts de pruebas automáticas para:
-
-- Entrenamiento correcto
-
-- Precisión mínima de modelos
-
-- Disponibilidad del endpoint /predict
-
-- Automatizar con GitHub Actions o GitLab CI/CD
+Esta arquitectura garantiza un sistema **escalable**, **tolerante a fallos** y **fácil de mantener**, cumpliendo con todos los requisitos del proyecto mientras mantiene la simplicidad operacional.
