@@ -1,6 +1,3 @@
-# Este archivo define y conecta todos los servicios
-# Se ejecuta automáticamente desde start.py
-
 version: '3.8'
 
 services:
@@ -9,73 +6,138 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.ray-head
+    container_name: ml-platform-ray-head
     ports:
       - "8265:8265"  # Ray Dashboard
       - "10001:10001"  # Ray Client
     environment:
       - RAY_DISABLE_IMPORT_WARNING=1
+      - RAY_HEAD_SERVICE_HOST=0.0.0.0
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - ml-platform
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8265"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
 
-  # Nodos trabajadores Ray (escalables)
+  # Nodo trabajador Ray #1
   ray-worker-1:
     build:
       context: .
       dockerfile: Dockerfile.ray-worker
+    container_name: ml-platform-ray-worker-1
     depends_on:
-      - ray-head
+      ray-head:
+        condition: service_healthy
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
+      - RAY_DISABLE_IMPORT_WARNING=1
     volumes:
       - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - ml-platform
+    restart: unless-stopped
 
+  # Nodo trabajador Ray #2
   ray-worker-2:
     build:
       context: .
       dockerfile: Dockerfile.ray-worker
+    container_name: ml-platform-ray-worker-2
     depends_on:
-      - ray-head
+      ray-head:
+        condition: service_healthy
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
+      - RAY_DISABLE_IMPORT_WARNING=1
     volumes:
       - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - ml-platform
+    restart: unless-stopped
 
   # API REST Principal
   api-gateway:
     build:
       context: .
       dockerfile: Dockerfile.api
+    container_name: ml-platform-api
     ports:
       - "8000:8000"  # FastAPI
     depends_on:
-      - ray-head
+      ray-head:
+        condition: service_healthy
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
+      - FASTAPI_ENV=production
     volumes:
       - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - ml-platform
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
 
   # Dashboard de Monitoreo
   monitoring:
     build:
       context: .
       dockerfile: Dockerfile.monitoring
+    container_name: ml-platform-monitoring
     ports:
-      - "3000:3000"  # Dashboard Web
+      - "8501:8501"  # Streamlit
     depends_on:
-      - ray-head
-      - api-gateway
+      ray-head:
+        condition: service_healthy
+      api-gateway:
+        condition: service_healthy
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - API_HOST=api-gateway
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - ml-platform
+    restart: unless-stopped
 
+  # Redis para cache (opcional)
+  redis:
+    image: redis:7-alpine
+    container_name: ml-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ml-platform
+    restart: unless-stopped
+
+# Redes
 networks:
   ml-platform:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Volúmenes
+volumes:
+  redis_data:
+    driver: local

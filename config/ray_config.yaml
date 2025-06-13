@@ -1,0 +1,39 @@
+# Configuración del cluster Ray
+ray_cluster:
+  # Configuración del nodo head
+  head_node:
+    host: "0.0.0.0"
+    port: 10001
+    dashboard_host: "0.0.0.0"
+    dashboard_port: 8265
+    object_store_memory: 1000000000  # 1GB
+    
+  # Configuración de workers
+  worker_nodes:
+    num_cpus: 2
+    num_gpus: 0
+    object_store_memory: 500000000  # 500MB
+    
+  # Configuración de recursos
+  resources:
+    auto_scaling: true
+    min_workers: 2
+    max_workers: 10
+    target_utilization: 0.8
+    
+  # Configuración de tolerancia a fallos
+  fault_tolerance:
+    enable_checkpointing: true
+    checkpoint_interval: 300  # segundos
+    max_retries: 3
+    heartbeat_timeout: 30
+    
+  # Configuración de logging
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    
+  # Configuración de seguridad
+  security:
+    enable_tls: false
+    redis_password: null

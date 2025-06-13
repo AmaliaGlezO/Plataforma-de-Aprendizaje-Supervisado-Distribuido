@@ -1,0 +1,46 @@
+# Configuración de la API REST
+api:
+  # Configuración del servidor
+  server:
+    host: "0.0.0.0"
+    port: 8000
+    debug: false
+    reload: true
+    workers: 4
+    
+  # Configuración de CORS
+  cors:
+    allow_origins: ["*"]
+    allow_methods: ["GET", "POST", "PUT", "DELETE"]
+    allow_headers: ["*"]
+    allow_credentials: true
+    
+  # Configuración de rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+    burst_size: 20
+    
+  # Configuración de autenticación
+  authentication:
+    enabled: false
+    secret_key: "your-secret-key-here"
+    algorithm: "HS256"
+    access_token_expire_minutes: 30
+    
+  # Configuración de uploads
+  uploads:
+    max_file_size: 100000000  # 100MB
+    allowed_extensions: [".csv", ".parquet", ".json"]
+    upload_directory: "/app/data/uploads"
+    
+  # Configuración de base de datos
+  database:
+    type: "sqlite"
+    url: "sqlite:///./data/ml_platform.db"
+    
+  # Configuración de cache
+  cache:
+    enabled: true
+    redis_url: "redis://localhost:6379"
+    default_ttl: 3600
