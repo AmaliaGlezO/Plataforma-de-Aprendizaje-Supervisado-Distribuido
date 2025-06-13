@@ -7,22 +7,22 @@ La plataforma se estructura en **4 capas principales** que trabajan de forma coo
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    CAPA DE INTERFAZ                     │
-│  [API REST] + [Dashboard Web] + [Monitoreo]            │
+│  [API REST] + [Dashboard Web] + [Monitoreo]             │
 └─────────────────────────────────────────────────────────┘
                             │
 ┌─────────────────────────────────────────────────────────┐
-│                CAPA DE ORQUESTACIÓN                    │
-│         [Ray Cluster] + [Task Manager]                 │
+│                CAPA DE ORQUESTACIÓN                     │
+│         [Ray Cluster] + [Task Manager]                  │
 └─────────────────────────────────────────────────────────┘
                             │
 ┌─────────────────────────────────────────────────────────┐
-│                  CAPA DE PROCESAMIENTO                 │
-│  [Training Workers] + [Model Serving] + [Data Pipeline]│
+│                  CAPA DE PROCESAMIENTO                  │
+│  [Training Workers] + [Model Serving] + [Data Pipeline] │
 └─────────────────────────────────────────────────────────┘
                             │
 ┌─────────────────────────────────────────────────────────┐
-│               CAPA DE INFRAESTRUCTURA                  │
-│    [Docker Containers] + [Storage] + [Network]         │
+│               CAPA DE INFRAESTRUCTURA                   │
+│    [Docker Containers] + [Storage] + [Network]          │
 └─────────────────────────────────────────────────────────┘
 ```
 
