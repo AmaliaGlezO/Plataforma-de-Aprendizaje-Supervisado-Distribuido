@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema ML Cuba - Diagrama Visual</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .canvas {
+            max-width: 1800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .title {
+            text-align: center;
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .network-diagram {
+            position: relative;
+            height: 1000px;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255, 107, 53, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 60%, rgba(40, 167, 69, 0.1) 0%, transparent 50%);
+            border: 2px dashed #ccc;
+            border-radius: 15px;
+            overflow: visible;
+        }
+
+        /* Contenedores Docker */
+        .container {
+            position: absolute;
+            border: 3px solid;
+            border-radius: 15px;
+            padding: 15px;
+            background: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .container:hover {
+            transform: scale(1.05);
+            z-index: 100;
+        }
+
+        .container-icon {
+            font-size: 2.5em;
+            margin-bottom: 8px;
+        }
+
+        .container-title {
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .container-port {
+            background: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            margin: 2px;
+            display: inline-block;
+        }
+
+        .container-details {
+            font-size: 0.7em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* Estilos específicos por tipo */
+        .api-container {
+            border-color: #28a745;
+            top: 50px;
+            left: 50px;
+        }
+
+        .ray-head-container {
+            border-color: #00d4ff;
+            top: 50px;
+            left: 300px;
+        }
+
+        .worker-container {
+            border-color: #6f42c1;
+            background: #f8f9ff;
+        }
+
+        .storage-container {
+            border-color: #ffc107;
+            top: 550px;
+            left: 550px;
+        }
+
+        .monitor-container {
+            border-color: #dc3545;
+            top: 50px;
+            right: 50px;
+        }
+
+        .user-container {
+            border-color: #17a2b8;
+            top: 300px;
+            left: -100px;
+            background: #e3f2fd;
+        }
+
+        /* Workers positioning */
+        .worker-1 { top: 250px; left: 200px; }
+        .worker-2 { top: 350px; left: 300px; }
+        .worker-3 { top: 450px; left: 200px; }
+        .worker-4 { top: 350px; left: 500px; }
+        .worker-5 { top: 250px; left: 600px; }
+
+        /* Conexiones */
+        .connection {
+            position: absolute;
+            background: linear-gradient(45deg, #007bff, #28a745);
+            height: 4px;
+            border-radius: 2px;
+            z-index: 1;
+            animation: dataFlow 3s infinite;
+        }
+
+        .connection::before {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid #28a745;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+        }
+
+        .connection-label {
+            position: absolute;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.6em;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+
+        /* Conexiones específicas */
+        .conn1 { top: 118px; left: 200px; width: 80px; }
+        .conn2 { top: 118px; left: 450px; width: 300px; }
+        .conn3 { top: 200px; left: 370px; width: 100px; transform: rotate(45deg); }
+        .conn4 { top: 300px; left: 370px; width: 100px; transform: rotate(0deg); }
+        .conn5 { top: 400px; left: 370px; width: 100px; transform: rotate(-45deg); }
+        .conn6 { top: 350px; left: 470px; width: 100px; }
+        .conn7 { top: 280px; left: 570px; width: 100px; transform: rotate(-45deg); }
+
+        /* Flujo de datos */
+        @keyframes dataFlow {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; box-shadow: 0 0 15px rgba(0,123,255,0.5); }
+            100% { opacity: 0.5; }
+        }
+
+        /* Leyenda */
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.95);
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            font-size: 0.8em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 2px solid;
+        }
+
+        /* Flujo de proceso */
+        .process-flow {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            border-radius: 10px;
+            padding: 15px;
+            max-width: 300px;
+            font-size: 0.8em;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            padding: 5px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 5px;
+        }
+
+        .step-number {
+            background: #007bff;
+            color: white;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+
+        /* Datos que fluyen */
+        .data-packet {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ffd700;
+            border-radius: 50%;
+            animation: moveData 4s infinite linear;
+            z-index: 50;
+        }
+
+        @keyframes moveData {
+            0% { left: 150px; top: 100px; }
+            25% { left: 350px; top: 100px; }
+            50% { left: 400px; top: 300px; }
+            75% { left: 600px; top: 500px; }
+            100% { left: 750px; top: 100px; }
+        }
+
+        /* Botones interactivos */
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* Alertas de estado */
+        .status-alert {
+            position: absolute;
+            top: 200px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .status-alert.show {
+            opacity: 1;
+        }
+
+        /* Modelo cards */
+        .model-indicator {
+            position: absolute;
+            background: #dc3545;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.6em;
+            font-weight: bold;
+        }
+
+        .model-rf1 { top: 220px; left: 250px; }
+        .model-rf2 { top: 320px; left: 350px; }
+        .model-rf3 { top: 420px; left: 250px; }
+        .model-svm1 { top: 320px; left: 550px; }
+        .model-svm2 { top: 220px; left: 650px; }
+        .model-linear { top: 380px; left: 450px; }
+        .model-gb { top: 280px; left: 500px; }
+
+        /* Datos de Cuba */
+        .cuba-data {
+            position: absolute;
+            top: 400px;
+            left: -80px;
+            background: linear-gradient(45deg, #002a8f, #cf142b);
+            color: white;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            transform: rotate(-15deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas">
+        <div class="title">🇨🇺 Sistema ML Distribuido - Red de Energía Cuba</div>
+        
+        <div class="network-diagram">
+            <!-- Controles -->
+            <div class="controls">
+                <button class="control-btn" onclick="showTrainingFlow()">🚀 Ver Entrenamiento</button>
+                <button class="control-btn" onclick="showPredictionFlow()">🔮 Ver Predicción</button>
+                <button class="control-btn" onclick="showConnections()">🔗 Ver Conexiones</button>
+                <button class="control-btn" onclick="resetView()">🔄 Reset</button>
+            </div>
+
+            <!-- Alerta de estado -->
+            <div class="status-alert" id="statusAlert">Sistema funcionando correctamente</div>
+
+            <!-- Usuario/Cliente -->
+            <div class="container user-container">
+                <div class="container-icon">👨‍💻</div>
+                <div class="container-title">USUARIO</div>
+                <div class="container-details">Envía datos<br>de Cuba</div>
+            </div>
+
+            <!-- Datos de Cuba -->
+            <div class="cuba-data">
+                📊 DATOS CUBA<br>
+                • Consumo energético<br>
+                • Variables climáticas<br>
+                • Patrones históricos
+            </div>
+
+            <!-- API Container -->
+            <div class="container api-container">
+                <div class="container-icon">🔌</div>
+                <div class="container-title">API REST</div>
+                <div class="container-port">:8000</div>
+                <div class="container-details">
+                    • POST /train<br>
+                    • POST /predict<br>
+                    • GET /status
+                </div>
+            </div>
+
+            <!-- Ray Head Container -->
+            <div class="container ray-head-container">
+                <div class="container-icon">🧠</div>
+                <div class="container-title">RAY HEAD</div>
+                <div class="container-port">:8265</div>
+                <div class="container-port">:10001</div>
+                <div class="container-details">
+                    • Coordinador<br>
+                    • Scheduler<br>
+                    • Dashboard
+                </div>
+            </div>
+
+            <!-- Workers -->
+            <div class="container worker-container worker-1">
+                <div class="container-icon">⚡</div>
+                <div class="container-title">WORKER 1</div>
+                <div class="container-details">Ray Worker<br>Scikit-Learn</div>
+            </div>
+
+            <div class="container worker-container worker-2">
+                <div class="container-icon">⚡</div>
+                <div class="container-title">WORKER 2</div>
+                <div class="container-details">Ray Worker<br>Scikit-Learn</div>
+            </div>
+
+            <div class="container worker-container worker-3">
+                <div class="container-icon">⚡</div>
+                <div class="container-title">WORKER 3</div>
+                <div class="container-details">Ray Worker<br>Scikit-Learn</div>
+            </div>
+
+            <div class="container worker-container worker-4">
+                <div class="container-icon">⚡</div>
+                <div class="container-title">WORKER 4</div>
+                <div class="container-details">Ray Worker<br>Scikit-Learn</div>
+            </div>
+
+            <div class="container worker-container worker-5">
+                <div class="container-icon">⚡</div>
+                <div class="container-title">WORKER 5</div>
+                <div class="container-details">Ray Worker<br>Scikit-Learn</div>
+            </div>
+
+            <!-- Storage Container -->
+            <div class="container storage-container">
+                <div class="container-icon">💾</div>
+                <div class="container-title">MODEL STORE</div>
+                <div class="container-port">:6379</div>
+                <div class="container-details">
+                    Redis/MongoDB<br>
+                    Modelos entrenados
+                </div>
+            </div>
+
+            <!-- Monitoring Container -->
+            <div class="container monitor-container">
+                <div class="container-icon">📊</div>
+                <div class="container-title">MONITORING</div>
+                <div class="container-port">:3000</div>
+                <div class="container-details">
+                    Grafana<br>
+                    Prometheus<br>
+                    Métricas
+                </div>
+            </div>
+
+            <!-- Conexiones -->
+            <div class="connection conn1">
+                <div class="connection-label">HTTP Request</div>
+            </div>
+            <div class="connection conn2">
+                <div class="connection-label">Dashboard Access</div>
+            </div>
+            <div class="connection conn3">
+                <div class="connection-label">Task Distribution</div>
+            </div>
+            <div class="connection conn4">
+                <div class="connection-label">Ray Network</div>
+            </div>
+            <div class="connection conn5">
+                <div class="connection-label">Cluster Comm</div>
+            </div>
+            <div class="connection conn6">
+                <div class="connection-label">Model Results</div>
+            </div>
+            <div class="connection conn7">
+                <div class="connection-label">Storage Sync</div>
+            </div>
+
+            <!-- Indicadores de modelos -->
+            <div class="model-indicator model-rf1">RF-100</div>
+            <div class="model-indicator model-rf2">RF-200</div>
+            <div class="model-indicator model-rf3">RF-500</div>
+            <div class="model-indicator model-svm1">SVM-1</div>
+            <div class="model-indicator model-svm2">SVM-2</div>
+            <div class="model-indicator model-linear">LINEAR</div>
+            <div class="model-indicator model-gb">XGB</div>
+
+            <!-- Paquete de datos animado -->
+            <div class="data-packet" id="dataPacket">📦</div>
+
+            <!-- Leyenda -->
+            <div class="legend">
+                <h4>🎨 Leyenda de Contenedores</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #28a745; border-color: #28a745;"></div>
+                    API REST (Puerto 8000)
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4ff; border-color: #00d4ff;"></div>
+                    Ray Head (Puertos 8265, 10001)
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #6f42c1; border-color: #6f42c1;"></div>
+                    Ray Workers (5 contenedores)
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffc107; border-color: #ffc107;"></div>
+                    Model Store (Puerto 6379)
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #dc3545; border-color: #dc3545;"></div>
+                    Monitoring (Puerto 3000)
+                </div>
+            </div>
+
+            <!-- Flujo de proceso -->
+            <div class="process-flow" id="processFlow">
+                <h4>🔄 Flujo de Proceso</h4>
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    Usuario envía datos Cuba vía API
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    API valida y envía a Ray Head
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    Ray particiona datos automáticamente
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    5 Workers entrenan 7 modelos paralelo
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    Modelos se guardan en Storage
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    API sirve predicciones en tiempo real
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">7</div>
+                    Monitoring registra todo el proceso
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let animationState = 'idle';
+
+        function showTrainingFlow() {
+            animationState = 'training';
+            showStatus('🚀 Iniciando entrenamiento de 7 modelos ML...');
+            
+            // Animar workers
+            const workers = document.querySelectorAll('.worker-container');
+            const models = document.querySelectorAll('.model-indicator');
+            
+            workers.forEach((worker, index) => {
+                setTimeout(() => {
+                    worker.style.background = '#28a745';
+                    worker.style.color = 'white';
+                    worker.style.transform = 'scale(1.1)';
+                }, index * 500);
+            });
+
+            models.forEach((model, index) => {
+                setTimeout(() => {
+                    model.style.background = '#28a745';
+                    model.style.transform = 'scale(1.2) rotate(360deg)';
+                }, 1000 + index * 200);
+            });
+
+            setTimeout(() => {
+                showStatus('✅ Entrenamiento completado! 7 modelos listos');
+            }, 4000);
+        }
+
+        function showPredictionFlow() {
+            animationState = 'prediction';
+            showStatus('🔮 Realizando predicciones del sistema energético...');
+
+            // Animar flujo de predicción
+            const apiContainer = document.querySelector('.api-container');
+            const storageContainer = document.querySelector('.storage-container');
+            
+            apiContainer.style.background = '#17a2b8';
+            apiContainer.style.color = 'white';
+            
+            setTimeout(() => {
+                storageContainer.style.background = '#ffc107';
+                storageContainer.style.transform = 'scale(1.1)';
+            }, 1000);
+
+            setTimeout(() => {
+                apiContainer.style.background = '#28a745';
+                showStatus('📊 Predicción lista: Consumo energético Cuba calculado');
+            }, 2000);
+        }
+
+        function showConnections() {
+            showStatus('🔗 Mostrando conexiones de red entre contenedores...');
+            
+            const connections = document.querySelectorAll('.connection');
+            connections.forEach((conn, index) => {
+                setTimeout(() => {
+                    conn.style.boxShadow = '0 0 20px #007bff';
+                    conn.style.height = '6px';
+                }, index * 300);
+            });
+
+            // Mostrar detalles de puertos
+            setTimeout(() => {
+                alert('🔗 CONEXIONES DE RED:\n\n' +
+                      '• Usuario → API (Puerto 8000): HTTP Requests\n' +
+                      '• API → Ray Head (Puerto 10001): Comandos Ray\n' +
+                      '• Ray Head → Workers: Ray Cluster Network\n' +
+                      '• Workers → Storage (Puerto 6379): Modelo Storage\n' +
+                      '• Monitoring (Puerto 3000): Dashboard Web\n' +
+                      '• Ray Dashboard (Puerto 8265): Admin Interface\n\n' +
+                      'Todos los contenedores en la misma red Docker!');
+            }, 2000);
+        }
+
+        function resetView() {
+            animationState = 'idle';
+            showStatus('🔄 Vista reiniciada - Sistema en espera');
+            
+            // Reset all styles
+            document.querySelectorAll('.container').forEach(container => {
+                container.style.background = '';
+                container.style.color = '';
+                container.style.transform = '';
+            });
+
+            document.querySelectorAll('.model-indicator').forEach(model => {
+                model.style.background = '#dc3545';
+                model.style.transform = '';
+            });
+
+            document.querySelectorAll('.connection').forEach(conn => {
+                conn.style.boxShadow = '';
+                conn.style.height = '4px';
+            });
+        }
+
+        function showStatus(message) {
+            const alert = document.getElementById('statusAlert');
+            alert.textContent = message;
+            alert.classList.add('show');
+            
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 3000);
+        }
+
+        // Animación automática cada 10 segundos
+        setInterval(() => {
+            if (animationState === 'idle') {
+                const actions = [showTrainingFlow, showPredictionFlow];
+                const randomAction = actions[Math.floor(Math.random() * actions.length)];
+                randomAction();
+                
+                setTimeout(() => {
+                    resetView();
+                }, 5000);
+            }
+        }, 15000);
+
+        // Click en contenedores para mostrar detalles
+        document.querySelectorAll('.container').forEach(container => {
+            container.addEventListener('click', function() {
+                const title = this.querySelector('.container-title').textContent;
+                const details = this.querySelector('.container-details').textContent;
+                const ports = Array.from(this.querySelectorAll('.container-port')).map(p => p.textContent).join(', ');
+                
+                alert(`🐳 CONTENEDOR: ${title}\n\n` +
+                      `📋 Detalles: ${details}\n` +
+                      `🔌 Puertos: ${ports || 'Internos'}\n\n` +
+                      `💡 Este contenedor es clave en el flujo de ML distribuido!`);
+            });
+        });
+
+        // Mostrar mensaje inicial
+        setTimeout(() => {
+            showStatus('🇨🇺 Sistema ML Cuba inicializado - Listo para procesar datos energéticos');
+        }, 1000);
+    </script>
+</body>
+</html>
