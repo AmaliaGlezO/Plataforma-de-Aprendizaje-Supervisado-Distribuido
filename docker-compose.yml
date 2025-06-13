@@ -1,16 +1,81 @@
-version: '3'
+# Este archivo define y conecta todos los servicios
+# Se ejecuta automáticamente desde start.py
+
+version: '3.8'
+
 services:
-  trainer:
+  # Nodo coordinador Ray
+  ray-head:
     build:
       context: .
-      dockerfile: docker/Dockerfile.training
+      dockerfile: Dockerfile.ray-head
+    ports:
+      - "8265:8265"  # Ray Dashboard
+      - "10001:10001"  # Ray Client
+    environment:
+      - RAY_DISABLE_IMPORT_WARNING=1
     volumes:
       - ./data:/app/data
-  api:
+      - ./config:/app/config
+    networks:
+      - ml-platform
+
+  # Nodos trabajadores Ray (escalables)
+  ray-worker-1:
     build:
       context: .
-      dockerfile: docker/Dockerfile.serving
-    ports:
-      - "8000:8000"
+      dockerfile: Dockerfile.ray-worker
     depends_on:
-      - trainer
+      - ray-head
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+    volumes:
+      - ./data:/app/data
+    networks:
+      - ml-platform
+
+  ray-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.ray-worker
+    depends_on:
+      - ray-head
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+    volumes:
+      - ./data:/app/data
+    networks:
+      - ml-platform
+
+  # API REST Principal
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"  # FastAPI
+    depends_on:
+      - ray-head
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+    volumes:
+      - ./data:/app/data
+    networks:
+      - ml-platform
+
+  # Dashboard de Monitoreo
+  monitoring:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitoring
+    ports:
+      - "3000:3000"  # Dashboard Web
+    depends_on:
+      - ray-head
+      - api-gateway
+    networks:
+      - ml-platform
+
+networks:
+  ml-platform:
+    driver: bridge
