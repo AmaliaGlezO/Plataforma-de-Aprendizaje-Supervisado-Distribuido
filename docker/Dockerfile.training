@@ -1,7 +1,0 @@
-# Base para entrenamiento
-# FROM python:3.10
-# WORKDIR /app
-# COPY requirements.txt .
-# RUN pip install -r requirements.txt
-# COPY ./training /app/training
-# CMD ["python", "training_runner.py"]
