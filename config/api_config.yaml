@@ -5,7 +5,7 @@ api:
     host: "0.0.0.0"
     port: 8000
     debug: false
-    reload: true
+    reload: false  # Cambiar a false para producción
     workers: 4
     
   # Configuración de CORS
@@ -37,10 +37,10 @@ api:
   # Configuración de base de datos
   database:
     type: "sqlite"
-    url: "sqlite:///./data/ml_platform.db"
+    url: "sqlite:////app/data/ml_platform.db"  # Ruta absoluta
     
   # Configuración de cache
   cache:
     enabled: true
-    redis_url: "redis://localhost:6379"
+    redis_url: "redis://redis:6379"  # Usar nombre del servicio Docker
     default_ttl: 3600

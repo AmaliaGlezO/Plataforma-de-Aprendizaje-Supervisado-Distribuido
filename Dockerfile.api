@@ -18,7 +18,7 @@ COPY src/ ./src/
 COPY config/ ./config/
 
 # Crear directorios necesarios
-RUN mkdir -p /app/data/models /app/data/datasets /app/data/uploads
+RUN mkdir -p /app/data/models /app/data/datasets /app/data/uploads /app/logs
 
 # Exponer puerto FastAPI
 EXPOSE 8000
@@ -27,5 +27,5 @@ EXPOSE 8000
 ENV PYTHONPATH=/app/src
 ENV FASTAPI_ENV=production
 
-# Comando para iniciar API
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Comando para iniciar API (sin --reload en producción)
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

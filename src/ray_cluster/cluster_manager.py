@@ -32,7 +32,7 @@ class ClusterManager:
         self.scaling_event = Event()
         self._validate_config()
         
-        # Inicializar con valores por defecto
+        # Iniciar con valores por defecto
         self.config.resources_per_worker = self.config.resources_per_worker or {"CPU": 2}
     
     def _setup_logging(self):

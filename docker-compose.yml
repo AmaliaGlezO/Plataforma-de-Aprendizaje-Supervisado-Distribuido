@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Nodo coordinador Ray
   ray-head:
@@ -20,10 +18,11 @@ services:
     networks:
       - ml-platform
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8265"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8265 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # Nodo trabajador Ray #1
@@ -80,6 +79,10 @@ services:
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - FASTAPI_ENV=production
+      - RAY_ADDRESS=ray://ray-head:10001
+      - RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
+      - RAY_USE_TLS=0
+      - RAY_CLIENT_RECONNECT=1
     volumes:
       - ./data:/app/data
       - ./config:/app/config
@@ -87,10 +90,11 @@ services:
     networks:
       - ml-platform
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   # Dashboard de Monitoreo
