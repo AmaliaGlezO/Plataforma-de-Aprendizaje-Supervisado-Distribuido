@@ -8,14 +8,10 @@ from datetime import datetime
 
 from modulos.utiles import initialize_session_state, load_custom_styles, get_unique_key
 from modulos.gestor_cluster import obtener_estado_cluster, obtener_metricas_sistema, renderizar_pestana_estado_cluster
-from modulos.interfaz_web import (
-    renderizar_pestana_entrenamiento, 
-    renderizar_pestana_metricas_sistema,
-)
+from modulos.interfaz_web import (renderizar_pestana_entrenamiento, renderizar_pestana_metricas_sistema)
 from modulos.servidor_api import renderizar_pestana_api
 
-
-
+# Configuración de la página debe ser la primera llamada de Streamlit
 st.set_page_config(
     page_title="Ray ML Cluster Dashboard",
     page_icon="🚀",
@@ -27,10 +23,7 @@ st.set_page_config(
     }
 )
 
-
 load_custom_styles()
-
-
 initialize_session_state()
 
 st.markdown("""
@@ -60,7 +53,7 @@ with st.sidebar:
     auto_refresh = st.toggle(
         "Auto-Refresh (10s)",
         value=st.session_state.auto_refresh,
-        key="auto_refresh_toggle"
+        key="auto_refresh_toggle",
     )
     
     if auto_refresh:

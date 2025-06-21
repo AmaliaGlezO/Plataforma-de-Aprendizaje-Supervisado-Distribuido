@@ -20,6 +20,7 @@ import ray
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 app = FastAPI(
     title="Distributed ML API",
     description="API para interactuar con modelos de Machine Learning entrenados en cluster Ray",
@@ -704,7 +705,7 @@ def main():
     logger.info(f"Servidor iniciando en http://{config['host']}:{config['port']}")
     logger.info(f"Documentación disponible en http://{config['host']}:{config['port']}/docs")
     
-    uvicorn.run("servidor_api:app", **config)
+    uvicorn.run("modulo/servidor_api:app", **config)
 
 if __name__ == "__main__":
     main()

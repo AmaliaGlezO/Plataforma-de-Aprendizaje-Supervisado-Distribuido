@@ -572,8 +572,3 @@ def renderizar_pestana_estadisticas_inferencia(cliente_api: ClienteAPI):
 def iniciar_api():
     uvicorn.run(app, host="0.0.0.0", port=API_PORT)
 
-if __name__ == "__main__":
-    # Para ejecutar la API: 
-    # uvicorn servidor_api:app --reload --host 0.0.0.0 --port 8000
-    print("Ejecuta este archivo con Uvicorn para iniciar la API:")
-    print("uvicorn servidor_api:app --reload --host 0.0.0.0 --port 8000")
