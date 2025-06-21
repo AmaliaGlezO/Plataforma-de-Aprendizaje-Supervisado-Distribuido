@@ -222,3 +222,76 @@ graph TD
 ---
 
 Esta arquitectura garantiza un sistema **escalable**, **tolerante a fallos** y **fácil de mantener**, cumpliendo con todos los requisitos del proyecto mientras mantiene la simplicidad operacional.
+
+distributed-ml-platform/
+├── 🐳 docker-compose.yml              # Orquestación de todos los contenedores
+├── 🐳 Dockerfile.ray-head             # Contenedor del nodo coordinador Ray
+├── 🐳 Dockerfile.ray-worker           # Contenedor de los workers Ray
+├── 🐳 Dockerfile.api                  # Contenedor de la API REST
+├── 🐳 Dockerfile.monitoring           # Contenedor del dashboard de monitoreo
+│
+├── 📂 config/
+│   ├── ray_config.yaml               # Configuración del cluster Ray
+│   ├── api_config.yaml               # Configuración de la API
+│   └── logging_config.yaml           # Configuración de logs
+│
+├── 📂 src/
+│   ├── 🧠 ray_cluster/
+│   │   ├── __init__.py
+│   │   ├── head_node.py              # Nodo coordinador Ray
+│   │   ├── worker_node.py            # Nodos trabajadores Ray
+│   │   └── cluster_manager.py        # Gestión del cluster
+│   │
+│   ├── 🤖 ml_engine/
+│   │   ├── __init__.py
+│   │   ├── data_loader.py            # Carga y procesamiento de datos
+│   │   ├── model_factory.py          # Creación de modelos ML
+│   │   ├── training_orchestrator.py  # Coordinación de entrenamientos
+│   │   ├── model_validator.py        # Validación de modelos
+│   │   └── model_server.py           # Servicio de inferencia
+│   │
+│   ├── 🌐 api/
+│   │   ├── __init__.py
+│   │   ├── main.py                   # FastAPI app principal
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   ├── training.py           # Endpoints de entrenamiento
+│   │   │   ├── prediction.py         # Endpoints de predicción
+│   │   │   ├── models.py             # Gestión de modelos
+│   │   │   └── monitoring.py         # Endpoints de métricas
+│   │   ├── middleware/
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py               # Autenticación
+│   │   │   └── rate_limiter.py       # Limitación de requests
+│   │   └── schemas/
+│   │       ├── __init__.py
+│   │       ├── training_schemas.py   # Modelos Pydantic para training
+│   │       └── prediction_schemas.py # Modelos Pydantic para predicción
+│   │
+│   ├── 📊 monitoring/
+│   │   ├── __init__.py
+│   │   ├── dashboard.py              # Dashboard web principal
+│   │   ├── metrics_collector.py      # Recolección de métricas
+│   │   └── visualizations.py         # Generación de gráficas
+│   │
+│   └── 🛠️ utils/
+│       ├── __init__.py
+│       ├── storage.py                # Gestión de almacenamiento
+│       ├── logger.py                 # Sistema de logging
+│       ├── health_checker.py         # Verificación de salud
+│       └── config_loader.py          # Carga de configuraciones
+│
+├── 📂 tests/
+│   ├── test_ray_cluster.py
+│   ├── test_ml_engine.py
+│   ├── test_api.py
+│   └── test_monitoring.py
+│
+├── 📂 data/                          # Datasets y modelos
+│   ├── datasets/
+│   ├── models/
+│   └── checkpoints/
+│
+├── 📋 requirements.txt               # Dependencias Python
+├── 🚀 start.py                      # ARCHIVO PRINCIPAL DE INICIO
+└── 📄 README.md
