@@ -1,147 +1,104 @@
+version: '3.8'
+
 services:
-  # Nodo coordinador Ray
   ray-head:
-    build:
-      context: .
-      dockerfile: Dockerfile.ray-head
-    container_name: ml-platform-ray-head
+    build: .
+    container_name: ray-head
     ports:
-      - "8265:8265"  # Ray Dashboard
-      - "10001:10001"  # Ray Client
+      - "8000:8000"    # API FastAPI
+      - "8265:8265"    # Ray Dashboard
+      - "8501:8501"    # Streamlit Dashboard (si usas)
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./scripts:/app/scripts
     environment:
       - RAY_DISABLE_IMPORT_WARNING=1
+      - PYTHONPATH=/app
       - RAY_HEAD_SERVICE_HOST=0.0.0.0
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./logs:/app/logs
+    command: >
+      bash -c "
+        echo '🚀 Iniciando Ray Head...' &&
+        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --include-dashboard=true &&
+        echo '✅ Ray Head iniciado' &&
+        echo '🔧 Iniciando API...' &&
+        python app/main.py
+      "
     networks:
-      - ml-platform
+      - ray-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8265 || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
-    restart: unless-stopped
+      start_period: 40s
 
-  # Nodo trabajador Ray #1
-  ray-worker-1:
-    build:
-      context: .
-      dockerfile: Dockerfile.ray-worker
-    container_name: ml-platform-ray-worker-1
+  ray-worker:
+    build: .
     depends_on:
       ray-head:
         condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./scripts:/app/scripts
     environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
       - RAY_DISABLE_IMPORT_WARNING=1
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./logs:/app/logs
+      - PYTHONPATH=/app
+    command: >
+      bash -c "
+        echo '⏳ Esperando Ray Head...' &&
+        sleep 15 &&
+        echo '🔗 Conectando a Ray Head...' &&
+        ray start --address=ray-head:6379 &&
+        echo '✅ Worker conectado' &&
+        tail -f /dev/null
+      "
     networks:
-      - ml-platform
-    restart: unless-stopped
-
-  # Nodo trabajador Ray #2
-  ray-worker-2:
-    build:
-      context: .
-      dockerfile: Dockerfile.ray-worker
-    container_name: ml-platform-ray-worker-2
-    depends_on:
-      ray-head:
-        condition: service_healthy
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - RAY_DISABLE_IMPORT_WARNING=1
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./logs:/app/logs
-    networks:
-      - ml-platform
-    restart: unless-stopped
-
-  # API REST Principal
-  api-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: ml-platform-api
-    ports:
-      - "8000:8000"  # FastAPI
-    depends_on:
-      ray-head:
-        condition: service_healthy
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - FASTAPI_ENV=production
-      - RAY_ADDRESS=ray://ray-head:10001
-      - RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=1
-      - RAY_USE_TLS=0
-      - RAY_CLIENT_RECONNECT=1
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./logs:/app/logs
-    networks:
-      - ml-platform
+      - ray-network
+    deploy:
+      replicas: 2
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "ray", "status"]
       interval: 30s
-      timeout: 15s
-      retries: 5
+      timeout: 10s
+      retries: 3
       start_period: 60s
-    restart: unless-stopped
 
-  # Dashboard de Monitoreo
-  monitoring:
-    build:
-      context: .
-      dockerfile: Dockerfile.monitoring
-    container_name: ml-platform-monitoring
+  dashboard:
+    build: .
+    container_name: ray-dashboard-app
     ports:
-      - "8501:8501"  # Streamlit
+      - "8502:8502"    # Puerto para dashboard personalizado
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+    environment:
+      - RAY_DISABLE_IMPORT_WARNING=1
+      - PYTHONPATH=/app
+      - RAY_ADDRESS=ray-head:6379
+    command: >
+      bash -c "
+        echo '⏳ Esperando Ray Head...' &&
+        sleep 20 &&
+        echo '📊 Iniciando Dashboard personalizado...' &&
+        python app/dashboard.py
+      "
     depends_on:
       ray-head:
         condition: service_healthy
-      api-gateway:
-        condition: service_healthy
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - API_HOST=api-gateway
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
-      - ./logs:/app/logs
     networks:
-      - ml-platform
-    restart: unless-stopped
+      - ray-network
 
-  # Redis para cache (opcional)
-  redis:
-    image: redis:7-alpine
-    container_name: ml-platform-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - ml-platform
-    restart: unless-stopped
-
-# Redes
 networks:
-  ml-platform:
+  ray-network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.0.0/16
-
-# Volúmenes
-volumes:
-  redis_data:
-    driver: local
