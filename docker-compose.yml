@@ -1,104 +1,198 @@
-version: '3.8'
-
 services:
   ray-head:
     build: .
     container_name: ray-head
+    hostname: ray-head
     ports:
-      - "8000:8000"    # API FastAPI
-      - "8265:8265"    # Ray Dashboard
-      - "8501:8501"    # Streamlit Dashboard (si usas)
-    volumes:
-      - ./app:/app/app
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-      - ./scripts:/app/scripts
-    environment:
-      - RAY_DISABLE_IMPORT_WARNING=1
-      - PYTHONPATH=/app
-      - RAY_HEAD_SERVICE_HOST=0.0.0.0
-    command: >
-      bash -c "
-        echo '🚀 Iniciando Ray Head...' &&
-        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --include-dashboard=true &&
-        echo '✅ Ray Head iniciado' &&
-        echo '🔧 Iniciando API...' &&
-        python app/main.py
-      "
+      - "8265:8265" 
+      - "10001:10001" 
+      - "6379:6379"  
     networks:
       - ray-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  ray-worker:
-    build: .
-    depends_on:
-      ray-head:
-        condition: service_healthy
-    volumes:
-      - ./app:/app/app
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-      - ./scripts:/app/scripts
     environment:
-      - RAY_DISABLE_IMPORT_WARNING=1
-      - PYTHONPATH=/app
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+    shm_size: 2gb
     command: >
       bash -c "
-        echo '⏳ Esperando Ray Head...' &&
-        sleep 15 &&
-        echo '🔗 Conectando a Ray Head...' &&
-        ray start --address=ray-head:6379 &&
-        echo '✅ Worker conectado' &&
-        tail -f /dev/null
+      ray start --head 
+      --port=6379 
+      --dashboard-host=0.0.0.0 
+      --dashboard-port=8265 
+      --num-cpus=2 
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 &&
+      echo 'Ray head node started successfully' &&
+      tail -f /dev/null
       "
-    networks:
-      - ray-network
-    deploy:
-      replicas: 2
-    healthcheck:
-      test: ["CMD", "ray", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  dashboard:
+    volumes:
+      - .:/app
+    restart: unless-stopped
+  
+  streamlit-app:
     build: .
-    container_name: ray-dashboard-app
+    container_name: streamlit-app
+    hostname: streamlit-app
     ports:
-      - "8502:8502"    # Puerto para dashboard personalizado
-    volumes:
-      - ./app:/app/app
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./logs:/app/logs
-    environment:
-      - RAY_DISABLE_IMPORT_WARNING=1
-      - PYTHONPATH=/app
-      - RAY_ADDRESS=ray-head:6379
-    command: >
-      bash -c "
-        echo '⏳ Esperando Ray Head...' &&
-        sleep 20 &&
-        echo '📊 Iniciando Dashboard personalizado...' &&
-        python app/dashboard.py
-      "
+      - "8501:8501"  
     depends_on:
-      ray-head:
-        condition: service_healthy
+      - ray-head
+      - ml-api
     networks:
       - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+      - CONTAINER_NAME=streamlit-app
+      - API_BASE_URL=http://ml-api:8000
+      - ENABLE_AUTO_FAILOVER=false
+    command: >
+      bash -c "
+      sleep 15 &&
+      echo 'Starting Streamlit application...' &&
+      streamlit run Dashboard.py --server.address=0.0.0.0 --server.port=8501"
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+  
+  ml-api:
+    build: .
+    container_name: ml-api
+    hostname: ml-api
+    ports:
+      - "8000:8000" 
+    depends_on:
+      - ray-head
+    networks:
+      - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=2
+      - ENABLE_AUTO_FAILOVER=false
+    command: >
+      bash -c "
+      sleep 20 &&
+      echo 'Starting ML API...' &&
+      python api.py
+      "
+    volumes:
+      - .:/app
+      - ./training_results:/app/training_results
+      - ./models:/app/models
+    restart: unless-stopped
+  ray-worker-1:
+    build: .
+    container_name: ray-worker-1
+    hostname: ray-worker-1
+    depends_on:
+      - ray-head
+    networks:
+      - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+    shm_size: 2gb
+    command: >
+      bash -c "
+      sleep 10 &&
+      ray start 
+      --address=ray-head:6379 
+      --num-cpus=2 
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 && 
+      echo 'Ray worker 1 started successfully' &&
+      tail -f /dev/null
+      "
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  ray-worker-2:
+    build: .
+    container_name: ray-worker-2
+    hostname: ray-worker-2
+    depends_on:
+      - ray-head
+    networks:
+      - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+    shm_size: 2gb
+    command: >
+      bash -c "
+      sleep 15 &&
+      ray start 
+      --address=ray-head:6379 
+      --num-cpus=2 
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 &&
+      echo 'Ray worker 2 started successfully' &&
+      tail -f /dev/null
+      "
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  ray-worker-3:
+    build: .
+    container_name: ray-worker-3
+    hostname: ray-worker-3
+    depends_on:
+      - ray-head
+    networks:
+      - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+    shm_size: 2gb
+    command: >
+      bash -c "
+      sleep 20 &&
+      ray start 
+      --address=ray-head:6379 
+      --num-cpus=2 
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 &&
+      echo 'Ray worker 3 started successfully' &&
+      tail -f /dev/null
+      "
+    volumes:
+      - .:/app
+    restart: unless-stopped
 
 networks:
   ray-network:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ray-bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
