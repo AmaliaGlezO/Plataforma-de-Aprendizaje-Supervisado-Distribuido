@@ -471,8 +471,8 @@ def renderizar_pestana_metricas_sistema(metricas_sistema):
         )
     
     with col2:
-        memory_gb = metricas_sistema['memory']['used'] / (1024**3)
-        total_gb = metricas_sistema['memory']['total'] / (1024**3)
+        memory_gb = metricas_sistema['memory']['used_gb']
+        total_gb = metricas_sistema['memory']['total'] 
         st.metric(
             "💾 Memoria", 
             f"{memory_gb:.1f}/{total_gb:.1f} GB",
@@ -677,10 +677,10 @@ def actualizar_metricas_automaticamente():
             try:
                 metrics = obtener_metricas_sistema()
                 save_system_metrics_history(metrics)
-                time.sleep(30)  # Recopilar cada 30 segundos
-            except:
-                print(f"Error en recolección de métricas: {e}")
-                time.sleep(60)  # Esperar más si hay error
+                time.sleep(30)  
+            except Exception as e:  
+                print(f"Error en recolección de métricas: {e}")  
+                time.sleep(60)  
     
     if not st.session_state.metrics_collector_running:
         st.session_state.metrics_collector_running = True

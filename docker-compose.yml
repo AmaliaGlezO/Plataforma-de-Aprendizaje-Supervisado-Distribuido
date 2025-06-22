@@ -30,10 +30,10 @@ services:
       - ./:/app
     restart: unless-stopped
 
-  ray-worker-1:
+  ray-worker1:
     build: .
-    container_name: ray-worker-1
-    hostname: ray-worker-1
+    container_name: ray-worker1
+    hostname: ray-worker1
     depends_on:
       ray-head:
         condition: service_started
@@ -56,10 +56,10 @@ services:
       - ./:/app
     restart: unless-stopped
 
-  ray-worker-2:
+  ray-worker2:
     build: .
-    container_name: ray-worker-2
-    hostname: ray-worker-2
+    container_name: ray-worker2
+    hostname: ray-worker2
     depends_on:
       ray-head:
         condition: service_started
@@ -81,6 +81,12 @@ services:
     volumes:
       - ./:/app
     restart: unless-stopped
+
+  trainer:   
+    build: .
+    command: python entrenador.py
+    depends_on:
+      - ray-head
 
   ml-api:
     build: .

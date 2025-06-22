@@ -29,6 +29,8 @@ def initialize_session_state():
         st.session_state.metrics_history = []
     if 'current_leader' not in st.session_state:
         st.session_state.current_leader = None
+    if 'auto_refresh' not in st.session_state:
+        st.session_state.auto_refresh = False
 
 def load_custom_styles():
     """Carga los estilos CSS personalizados para la aplicación"""

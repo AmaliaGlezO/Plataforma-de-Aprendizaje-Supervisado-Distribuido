@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 
-from modulos.entrenador import EntrenamientoDistribuido
+from entrenador import EntrenamientoDistribuido
 import ray
 
 logging.basicConfig(level=logging.INFO)
@@ -705,7 +705,7 @@ def main():
     logger.info(f"Servidor iniciando en http://{config['host']}:{config['port']}")
     logger.info(f"Documentación disponible en http://{config['host']}:{config['port']}/docs")
     
-    uvicorn.run("modulo/servidor_api:app", **config)
+    uvicorn.run("modulos.api:app", **config)
 
 if __name__ == "__main__":
     main()

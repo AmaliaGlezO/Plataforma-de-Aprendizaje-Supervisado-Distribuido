@@ -144,9 +144,12 @@ def graficar_metricas_cluster(estado_cluster: Dict):
     fig_recursos = go.Figure()
     
     # CPU
+    total_cpu = estado_cluster.get("total_cpu", 0)
+    available_cpu = estado_cluster.get("available_cpu", 0)
+    value = 100 * (total_cpu - available_cpu) / total_cpu if total_cpu > 0 else 0
     fig_recursos.add_trace(go.Indicator(
         mode="gauge+number",
-        value=100 * (estado_cluster["total_cpu"] - estado_cluster["available_cpu"]) / estado_cluster["total_cpu"] if estado_cluster["total_cpu"] > 0 else 0,
+        value=value,
         title={'text': "Uso de CPU"},
         domain={'x': [0, 0.3], 'y': [0.5, 1]},
         gauge={
@@ -161,9 +164,12 @@ def graficar_metricas_cluster(estado_cluster: Dict):
     ))
     
     # Memoria
+    total_memory_gb = estado_cluster.get("total_memory_gb", 0)
+    available_memory_gb = estado_cluster.get("available_memory_gb", 0)
+    value = 100 * (total_memory_gb - available_memory_gb) / total_memory_gb if total_memory_gb > 0 else 0
     fig_recursos.add_trace(go.Indicator(
         mode="gauge+number",
-        value=100 * (estado_cluster["total_memory_gb"] - estado_cluster["available_memory_gb"]) / estado_cluster["total_memory_gb"] if estado_cluster["total_memory_gb"] > 0 else 0,
+        value=value,
         title={'text': "Uso de Memoria"},
         domain={'x': [0.35, 0.65], 'y': [0.5, 1]},
         gauge={
@@ -281,6 +287,15 @@ def renderizar_pestana_estado_cluster(estado_cluster: Dict, metricas_sistema: Di
                     hide_index=True,
                     use_container_width=True
                 )
+
+def renderizar_pestana_metricas_sistema(metricas_sistema):
+    # Verifica el contenido de metricas_sistema
+    st.write(metricas_sistema)  # Para depurar y ver el contenido
+
+    used_memory = metricas_sistema['memory'].get('used_gb', 0)  
+    memory_gb = used_memory 
+
+    # Resto de tu código para mostrar métricas
 
 def añadir_worker_externo(nombre_worker: str, cpu_a_añadir: int) -> bool:
     """Añade un worker externo usando docker directamente"""
