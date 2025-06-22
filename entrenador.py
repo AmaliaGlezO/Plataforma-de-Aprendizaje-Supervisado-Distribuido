@@ -301,13 +301,18 @@ class EntrenamientoDistribuido:
         
         return self.results
     
-    def save_results(self, filename="training_results.json"):
+    def save_results(self, filename="training_results/training_results.json"):
         """Guarda los resultados en un archivo JSON"""
+        import os
+        os.makedirs(os.path.dirname(filename), exist_ok=True)  # Asegura que exista la carpeta
         with open(filename, 'w') as f:
-            json.dump({k: {kk: vv for kk, vv in v.items() if kk != 'model'} 
-                      for k, v in self.results.items()}, f, indent=2)
+            json.dump(
+                {k: {kk: vv for kk, vv in v.items() if kk != 'model'} for k, v in self.results.items()},
+                f,
+                indent=2
+            )
         logger.info(f"Resultados guardados en: {filename}")
-    
+
     def save_models(self, directory="models"):
         """Guarda los modelos entrenados"""
         os.makedirs(directory, exist_ok=True)

@@ -1,0 +1,42 @@
+{
+  "RandomForest": {
+    "model_name": "RandomForest",
+    "mse": 263.02958655117527,
+    "mae": 4.480331481701939,
+    "r2": 0.9989315580378266,
+    "training_time": 0.18387937545776367,
+    "status": "success"
+  },
+  "HistGradientBoosting": {
+    "model_name": "HistGradientBoosting",
+    "mse": 451.2077240133465,
+    "mae": 6.9723223695078165,
+    "r2": 0.9981671671528906,
+    "training_time": 0.07352805137634277,
+    "status": "success"
+  },
+  "LinearRegression": {
+    "model_name": "LinearRegression",
+    "mse": 158.5348721638803,
+    "mae": 1.76440851184217,
+    "r2": 0.9993560218372821,
+    "training_time": 0.006453514099121094,
+    "status": "success"
+  },
+  "Ridge": {
+    "model_name": "Ridge",
+    "mse": 44.68195033990993,
+    "mae": 1.7935885751781215,
+    "r2": 0.9998184992368316,
+    "training_time": 0.0092620849609375,
+    "status": "success"
+  },
+  "GradientBoosting": {
+    "model_name": "GradientBoosting",
+    "mse": 256.07685260119104,
+    "mae": 4.781390970777036,
+    "r2": 0.9989598004602909,
+    "training_time": 0.18266510963439941,
+    "status": "success"
+  }
+}

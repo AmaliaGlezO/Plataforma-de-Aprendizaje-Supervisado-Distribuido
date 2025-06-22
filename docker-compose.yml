@@ -87,6 +87,11 @@ services:
     command: python entrenador.py
     depends_on:
       - ray-head
+    volumes:
+    - ./:/app
+    - ./models:/app/models
+    - ./data:/app/data
+    - ./training_results:/app/training_results  # ✅ esta línea es la que necesitas
 
   ml-api:
     build: .
