@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   ray-head:
     build: .
     container_name: ray-head
     hostname: ray-head
     ports:
-      - "8265:8265"
-      - "6379:6379"
+      - "8265:8265"  # Dashboard de Ray
+      - "6379:6379"  # Puerto principal de Ray
     networks:
       ray-network:
         ipv4_address: 172.25.0.2
@@ -29,6 +27,11 @@ services:
     volumes:
       - ./:/app
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8265"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   ray-worker1:
     build: .
@@ -36,9 +39,10 @@ services:
     hostname: ray-worker1
     depends_on:
       ray-head:
-        condition: service_started
+        condition: service_healthy
     networks:
-      - ray-network
+      ray-network:
+        ipv4_address: 172.25.0.3
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - PYTHONUNBUFFERED=1
@@ -62,9 +66,10 @@ services:
     hostname: ray-worker2
     depends_on:
       ray-head:
-        condition: service_started
+        condition: service_healthy
     networks:
-      - ray-network
+      ray-network:
+        ipv4_address: 172.25.0.4
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - PYTHONUNBUFFERED=1
@@ -82,37 +87,49 @@ services:
       - ./:/app
     restart: unless-stopped
 
-  trainer:   
+  trainer:
     build: .
-    command: python entrenador.py
+    container_name: trainer
+    command: tail -f /dev/null  # Mantiene el contenedor activo
     depends_on:
-      - ray-head
+      ray-head:
+        condition: service_healthy
+    networks:
+      - ray-network
     volumes:
-    - ./:/app
-    - ./models:/app/models
-    - ./data:/app/data
-    - ./training_results:/app/training_results  # ✅ esta línea es la que necesitas
+      - ./:/app
+      - models:/app/models
+      - data:/app/data
+      - training_results:/app/training_results
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - PYTHONUNBUFFERED=1
 
   ml-api:
     build: .
     container_name: ml-api
     hostname: ml-api
     ports:
-      - "8000:8000"
+      - "8000:8000"  # API FastAPI
     depends_on:
       ray-head:
-        condition: service_started
+        condition: service_healthy
     networks:
-      - ray-network
+      ray-network:
+        ipv4_address: 172.25.0.5
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - PYTHONUNBUFFERED=1
-    command: >
-      bash -c "sleep 30 && uvicorn api:app --host 0.0.0.0 --port 8000"
     volumes:
-      - ./:/app
       - models:/app/models
       - training_results:/app/training_results
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      bash -c "sleep 15 && uvicorn api:app --host 0.0.0.0 --port 8000 --workers 4"
     restart: unless-stopped
 
   dashboard:
@@ -120,17 +137,17 @@ services:
     container_name: dashboard-app
     hostname: dashboard-app
     ports:
-      - "8501:8501"
+    - "8502:8501"
     depends_on:
       - ray-head
       - ml-api
     networks:
-      - ray-network
+      ray-network:
+        ipv4_address: 172.25.0.6
     environment:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - API_BASE_URL=http://ml-api:8000
       - PYTHONUNBUFFERED=1
-      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=poll
     command: >
       bash -c "sleep 35 && streamlit run Dashboard.py --server.address=0.0.0.0 --server.port=8501"
     volumes:
@@ -143,7 +160,12 @@ networks:
     ipam:
       config:
         - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
 
 volumes:
   models:
+    driver: local
+  data:
+    driver: local
   training_results:
+    driver: local

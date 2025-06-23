@@ -1,0 +1,10 @@
+{
+  "datasets_procesados": [],
+  "timestamp": "2025-06-22T18:36:17.140215",
+  "modelos_utilizados": [
+    "RandomForest",
+    "GradientBoosting",
+    "LinearRegression"
+  ],
+  "estadisticas_globales": {}
+}

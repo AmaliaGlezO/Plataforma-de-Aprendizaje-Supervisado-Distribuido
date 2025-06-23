@@ -16,6 +16,7 @@ import uvicorn
 from pathlib import Path
 import logging
 import threading
+import io
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -23,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Configuración de FastAPI
 app = FastAPI(
-    title="API de ML Distribuido",
-    description="API para entrenamiento y predicción de modelos de ML distribuido",
-    version="1.0.0"
+    title="Gateway de Modelos ML",
+    description="API para orquestación y predicción de modelos distribuidos",
+    version="2.0.0"
 )
 
 # Configuración de la API
@@ -151,7 +152,8 @@ async def predict_batch(
         # Leer y procesar archivo
         contents = await file.read()
         if file.filename.endswith('.csv'):
-            df = pd.read_csv(pd.compat.StringIO(contents.decode('utf-8')))
+            # Corregir la lectura del CSV
+            df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
             features = df.values.tolist()
         elif file.filename.endswith('.json'):
             data = json.loads(contents)
@@ -209,9 +211,11 @@ async def train_models(request: TrainRequest) -> Dict:
         import time
         for i in range(1, 101):
             time.sleep(0.1)
-            api_state.training_jobs[job_id]["progress"] = i
-        api_state.training_jobs[job_id]["status"] = "completed"
-        api_state.training_jobs[job_id]["end_time"] = datetime.now().isoformat()
+            if job_id in api_state.training_jobs:
+                api_state.training_jobs[job_id]["progress"] = i
+        if job_id in api_state.training_jobs:
+            api_state.training_jobs[job_id]["status"] = "completed"
+            api_state.training_jobs[job_id]["end_time"] = datetime.now().isoformat()
     
     threading.Thread(target=simulate_training, args=(job_id,)).start()
     
@@ -272,7 +276,7 @@ class ClienteAPI:
     
     def verificar_estado(self) -> Dict:
         try:
-            response = requests.get(f"{self.base_url}/health")
+            response = requests.get(f"{self.base_url}/health", timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -280,7 +284,7 @@ class ClienteAPI:
     
     def obtener_modelos(self) -> Dict:
         try:
-            response = requests.get(f"{self.base_url}/models")
+            response = requests.get(f"{self.base_url}/models", timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -288,7 +292,7 @@ class ClienteAPI:
     
     def obtener_info_modelo(self, nombre_modelo: str) -> Dict:
         try:
-            response = requests.get(f"{self.base_url}/models/{nombre_modelo}")
+            response = requests.get(f"{self.base_url}/models/{nombre_modelo}", timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -302,7 +306,8 @@ class ClienteAPI:
             }
             response = requests.post(
                 f"{self.base_url}/predict/{nombre_modelo}",
-                json=payload
+                json=payload,
+                timeout=30
             )
             response.raise_for_status()
             return response.json()
@@ -315,7 +320,8 @@ class ClienteAPI:
             response = requests.post(
                 f"{self.base_url}/predict/batch/{nombre_modelo}",
                 files=files,
-                data={"include_probs": incluir_probabilidades}
+                data={"include_probs": incluir_probabilidades},
+                timeout=60
             )
             response.raise_for_status()
             return response.json()
@@ -329,7 +335,7 @@ class ClienteAPI:
                 "selected_models": modelos_seleccionados or [],
                 "test_size": tamanio_prueba
             }
-            response = requests.post(f"{self.base_url}/train", json=payload)
+            response = requests.post(f"{self.base_url}/train", json=payload, timeout=30)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -337,7 +343,7 @@ class ClienteAPI:
     
     def obtener_estado_cluster(self) -> Dict:
         try:
-            response = requests.get(f"{self.base_url}/cluster/status")
+            response = requests.get(f"{self.base_url}/cluster/status", timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -345,7 +351,7 @@ class ClienteAPI:
     
     def obtener_datasets(self) -> Dict:
         try:
-            response = requests.get(f"{self.base_url}/datasets")
+            response = requests.get(f"{self.base_url}/datasets", timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -356,216 +362,376 @@ class ClienteAPI:
             url = f"{self.base_url}/inference/stats"
             if nombre_modelo:
                 url += f"?model_name={nombre_modelo}"
-            response = requests.get(url)
+            response = requests.get(url, timeout=5)
             response.raise_for_status()
             return response.json()
         except Exception as e:
             return {"error": str(e)}
 
-# --- Interfaz Streamlit ---
+# --- Interfaz Streamlit con Nuevo Estilo ---
 
 def renderizar_pestana_api():
-    st.header("🔌 Interfaz API")
+    """Renderiza la pestaña principal de la API con el nuevo estilo"""
+    
+    # Estilos específicos para la pestaña API
+    st.markdown("""
+    <style>
+    .api-status-card {
+        background: linear-gradient(135deg, var(--blanco-roto) 0%, var(--beige-claro) 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        border: 2px solid var(--beige-grisaceo);
+        box-shadow: 0 6px 20px rgba(64, 61, 57, 0.15);
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    
+    .api-metric {
+        background: var(--beige-calido);
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid var(--beige-grisaceo);
+        margin: 0.5rem 0;
+    }
+    
+    .status-indicator {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: bold;
+        margin: 0.5rem;
+    }
+    
+    .status-healthy {
+        background: var(--verde-apagado);
+        color: var(--blanco-roto);
+    }
+    
+    .status-error {
+        background: var(--naranja-terracota);
+        color: var(--blanco-roto);
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     cliente_api = ClienteAPI()
     
-    # Verificar estado de la API
+    # Estado de la API con nuevo estilo
+    st.markdown('<div class="api-status-card">', unsafe_allow_html=True)
+    st.markdown("### 🛡️ Estado del Gateway de Modelos")
+    
     estado_api = cliente_api.verificar_estado()
     if estado_api.get("status") == "healthy":
-        st.success("✅ API conectada y saludable")
+        st.markdown('<div class="status-indicator status-healthy">✅ Gateway Operativo</div>', unsafe_allow_html=True)
+        st.success("API conectada y procesando solicitudes")
     else:
-        st.error(f"❌ Error conectando a la API: {estado_api.get('error', 'Desconocido')}")
+        st.markdown('<div class="status-indicator status-error">❌ Gateway Desconectado</div>', unsafe_allow_html=True)
+        st.error(f"Error de conexión: {estado_api.get('error', 'Servicio no disponible')}")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
     
-    # Mostrar estado del cluster
-    estado_cluster = cliente_api.obtener_estado_cluster()
-    if "error" not in estado_cluster:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("🖥️ Nodos", estado_cluster.get("nodes", 0))
-        col2.metric("⚡ CPUs", estado_cluster.get("resources", {}).get("CPU", 0))
-        col3.metric("💾 Memoria (GB)", estado_cluster.get("resources", {}).get("memory_gb", 0))
-    else:
-        st.error(f"Error obteniendo estado del cluster: {estado_cluster['error']}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Pestañas secundarias con nuevo estilo
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🤖 Explorar Modelos", 
+        "🔮 Predicciones", 
+        "📊 Estadísticas", 
+        "⚙️ Monitoreo"
+    ])
+    
+    with tab1:
+        renderizar_pestana_explorar_modelos(cliente_api)
+    
+    with tab2:
+        renderizar_pestana_predicciones(cliente_api)
+    
+    with tab3:
+        renderizar_pestana_estadisticas_inferencia(cliente_api)
+    
+    with tab4:
+        renderizar_pestana_monitoreo_cluster(cliente_api)
 
 def renderizar_pestana_explorar_modelos(cliente_api: ClienteAPI):
-    st.header("🤖 Explorar Modelos Entrenados")
+    """Explora modelos disponibles con estilo renovado"""
+    st.markdown('<div class="content-container">', unsafe_allow_html=True)
+    st.markdown("### 🤖 Repositorio de Modelos")
     
     modelos = cliente_api.obtener_modelos()
     if "error" in modelos:
-        st.error(f"Error obteniendo modelos: {modelos['error']}")
+        st.error(f"❌ Error cargando modelos: {modelos['error']}")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
     
     if not modelos.get("models"):
-        st.warning("No hay modelos entrenados disponibles")
+        st.warning("📭 No hay modelos entrenados disponibles")
+        st.info("💡 Entrena algunos modelos desde la pestaña 'Laboratorio ML' para comenzar")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
     
+    # Mostrar resumen de modelos
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🧠 Modelos Totales", len(modelos["models"]))
+    col2.metric("💾 Tamaño Promedio", f"{sum(float(m['size'].split()[0]) for m in modelos['models'].values()) / len(modelos['models']):.1f} KB")
+    col3.metric("📅 Último Creado", max(modelos["models"].values(), key=lambda x: x['created_at'])['created_at'][:10])
+    
+    st.markdown("---")
+    
     modelo_seleccionado = st.selectbox(
-        "Seleccionar modelo",
+        "🔍 Seleccionar modelo para inspeccionar",
         list(modelos["models"].keys())
     )
     
     if modelo_seleccionado:
         info_modelo = cliente_api.obtener_info_modelo(modelo_seleccionado)
         if "error" in info_modelo:
-            st.error(f"Error obteniendo información del modelo: {info_modelo['error']}")
+            st.error(f"❌ Error obteniendo información: {info_modelo['error']}")
         else:
-            st.subheader(f"📋 Información de {modelo_seleccionado}")
-            st.json(info_modelo)
+            st.markdown(f"#### 📋 Análisis de **{modelo_seleccionado}**")
             
-            # Mostrar parámetros del modelo
-            if info_modelo.get("params"):
-                st.subheader("⚙️ Parámetros del Modelo")
-                st.write(info_modelo["params"])
+            # Información básica
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Tipo de Modelo:**")
+                st.code(info_modelo.get("type", "N/A"))
+                st.markdown("**Fecha de Creación:**")
+                st.write(info_modelo.get("created_at", "N/A")[:16])
             
-            # Mostrar importancia de características si está disponible
+            with col2:
+                if info_modelo.get("params"):
+                    st.markdown("**Parámetros del Modelo:**")
+                    with st.expander("Ver configuración completa"):
+                        st.json(info_modelo["params"])
+            
+            # Importancia de características si está disponible
             if info_modelo.get("feature_importances"):
-                st.subheader("📊 Importancia de Características")
+                st.markdown("#### 📊 Importancia de Características")
+                importances = info_modelo["feature_importances"]
                 fig = px.bar(
-                    x=range(len(info_modelo["feature_importances"])),
-                    y=info_modelo["feature_importances"],
-                    labels={"x": "Índice de Característica", "y": "Importancia"}
+                    x=range(len(importances)),
+                    y=importances,
+                    labels={"x": "Índice de Característica", "y": "Importancia"},
+                    title="Relevancia de cada característica en el modelo",
+                    color=importances,
+                    color_continuous_scale="Viridis"
                 )
-                st.plotly_chart(fig)
+                fig.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def renderizar_pestana_predicciones(cliente_api: ClienteAPI):
-    st.header("🔮 Realizar Predicciones")
+    """Interfaz de predicciones con nuevo estilo"""
+    st.markdown('<div class="content-container">', unsafe_allow_html=True)
     
-    tab1, tab2 = st.tabs(["Predicción Individual", "Predicción por Lote"])
+    tab1, tab2 = st.tabs(["🎯 Predicción Individual", "📦 Predicción Masiva"])
     
     with tab1:
         renderizar_prediccion_individual(cliente_api)
     
     with tab2:
         renderizar_prediccion_en_lote(cliente_api)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def renderizar_prediccion_individual(cliente_api: ClienteAPI):
+    """Predicción individual con estilo mejorado"""
+    st.markdown("### 🎯 Predicción Individual")
+    
     modelos = cliente_api.obtener_modelos()
     if "error" in modelos or not modelos.get("models"):
-        st.error("No hay modelos disponibles para predicción")
+        st.error("❌ No hay modelos disponibles para predicción")
         return
     
     modelo_seleccionado = st.selectbox(
-        "Modelo para predicción",
+        "🧠 Seleccionar modelo",
         list(modelos["models"].keys()),
         key="modelo_pred_individual"
     )
     
-    # Ejemplo de características basado en el modelo de energía
+    # Interfaz mejorada para características
+    st.markdown("#### 📊 Configurar Datos de Entrada")
     caracteristicas = st.text_area(
         "Características (formato JSON array 2D)",
         value='[[5.1, 3.5, 1.4, 0.2]]',
-        height=100
+        height=100,
+        help="Ingresa las características como un array de arrays. Ejemplo: [[valor1, valor2, valor3]]"
     )
-    incluir_probabilidades = st.checkbox("Incluir probabilidades (si el modelo lo soporta)")
     
-    if st.button("Predecir"):
-        try:
-            features = json.loads(caracteristicas)
-            if not isinstance(features, list) or not all(isinstance(x, list) for x in features):
-                raise ValueError("Formato incorrecto")
-            
-            resultado = cliente_api.predecir(
-                modelo_seleccionado,
-                features,
-                incluir_probabilidades
-            )
-            
-            if "error" in resultado:
-                st.error(f"Error en predicción: {resultado['error']}")
-            else:
-                st.success("✅ Predicción exitosa")
-                st.subheader("Resultados")
-                st.write(resultado)
-                
-                # Visualización de resultados
-                if "predictions" in resultado:
-                    df = pd.DataFrame({
-                        "input": [str(f) for f in features],
-                        "prediction": resultado["predictions"]
-                    })
-                    st.dataframe(df)
-                
-                if "probabilities" in resultado:
-                    st.subheader("Probabilidades")
-                    prob_df = pd.DataFrame(resultado["probabilities"])
-                    st.bar_chart(prob_df)
-        except Exception as e:
-            st.error(f"Error procesando características: {str(e)}")
+    col1, col2 = st.columns(2)
+    with col1:
+        incluir_probabilidades = st.checkbox("📈 Incluir probabilidades", help="Si el modelo lo soporta")
+    with col2:
+        if st.button("🚀 Ejecutar Predicción", type="primary"):
+            with st.spinner("🔄 Procesando predicción..."):
+                try:
+                    features = json.loads(caracteristicas)
+                    if not isinstance(features, list) or not all(isinstance(x, list) for x in features):
+                        raise ValueError("Formato incorrecto")
+                    
+                    resultado = cliente_api.predecir(
+                        modelo_seleccionado,
+                        features,
+                        incluir_probabilidades
+                    )
+                    
+                    if "error" in resultado:
+                        st.error(f"❌ Error en predicción: {resultado['error']}")
+                    else:
+                        st.success("✅ Predicción completada exitosamente")
+                        
+                        # Mostrar resultados con estilo
+                        st.markdown("#### 📈 Resultados")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Predicciones:**")
+                            for i, pred in enumerate(resultado["predictions"]):
+                                st.metric(f"Muestra {i+1}", f"{pred:.4f}")
+                        
+                        with col2:
+                            if "probabilities" in resultado:
+                                st.markdown("**Probabilidades:**")
+                                prob_df = pd.DataFrame(resultado["probabilities"])
+                                st.bar_chart(prob_df)
+                        
+                except Exception as e:
+                    st.error(f"❌ Error procesando características: {str(e)}")
 
 def renderizar_prediccion_en_lote(cliente_api: ClienteAPI):
+    """Predicción en lote con interfaz mejorada"""
+    st.markdown("### 📦 Predicción Masiva")
+    
     modelos = cliente_api.obtener_modelos()
     if "error" in modelos or not modelos.get("models"):
-        st.error("No hay modelos disponibles para predicción")
+        st.error("❌ No hay modelos disponibles para predicción")
         return
     
     modelo_seleccionado = st.selectbox(
-        "Modelo para predicción",
+        "🧠 Seleccionar modelo",
         list(modelos["models"].keys()),
         key="modelo_pred_lote"
     )
     
+    st.markdown("#### 📁 Cargar Archivo de Datos")
     archivo = st.file_uploader(
-        "Subir archivo con datos (CSV o JSON)",
-        type=["csv", "json"]
+        "Subir archivo con datos",
+        type=["csv", "json"],
+        help="Formatos soportados: CSV (con headers) o JSON con estructura {'features': [[...]]}"
     )
-    incluir_probabilidades = st.checkbox("Incluir probabilidades (si el modelo lo soporta)", key="probs_lote")
     
-    if archivo and st.button("Predecir Lote"):
-        resultado = cliente_api.predecir_lote(
-            modelo_seleccionado,
-            archivo.getvalue(),
-            archivo.name,
-            incluir_probabilidades
-        )
-        
-        if "error" in resultado:
-            st.error(f"Error en predicción: {resultado['error']}")
-        else:
-            st.success(f"✅ {resultado['num_predictions']} predicciones realizadas")
-            st.download_button(
-                "Descargar resultados",
-                data=json.dumps(resultado, indent=2),
-                file_name=f"predictions_{modelo_seleccionado}_{datetime.now().strftime('%Y%m%d')}.json",
-                mime="application/json"
+    incluir_probabilidades = st.checkbox(
+        "📊 Incluir probabilidades en resultados", 
+        key="probs_lote"
+    )
+    
+    if archivo and st.button("🚀 Procesar Lote", type="primary"):
+        with st.spinner("🔄 Procesando predicciones en lote..."):
+            resultado = cliente_api.predecir_lote(
+                modelo_seleccionado,
+                archivo.getvalue(),
+                archivo.name,
+                incluir_probabilidades
             )
+            
+            if "error" in resultado:
+                st.error(f"❌ Error en predicción: {resultado['error']}")
+            else:
+                st.success(f"✅ {resultado['num_predictions']} predicciones realizadas exitosamente")
+                
+                # Mostrar estadísticas del lote
+                col1, col2, col3 = st.columns(3)
+                col1.metric("📊 Predicciones", resultado['num_predictions'])
+                col2.metric("📁 Archivo", resultado['filename'])
+                col3.metric("⏱️ Procesado", datetime.now().strftime("%H:%M:%S"))
+                
+                # Botón de descarga
+                st.download_button(
+                    "💾 Descargar Resultados",
+                    data=json.dumps(resultado, indent=2),
+                    file_name=f"predictions_{modelo_seleccionado}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
 
 def renderizar_pestana_estadisticas_inferencia(cliente_api: ClienteAPI):
-    st.header("📈 Estadísticas de Inferencia")
+    """Estadísticas de inferencia con visualizaciones mejoradas"""
+    st.markdown('<div class="content-container">', unsafe_allow_html=True)
+    st.markdown("### 📊 Análisis de Rendimiento")
     
     stats = cliente_api.obtener_estadisticas_inferencia()
     if "error" in stats:
-        st.error(f"Error obteniendo estadísticas: {stats['error']}")
+        st.error(f"❌ Error obteniendo estadísticas: {stats['error']}")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
     
     if not stats:
-        st.info("No hay estadísticas de inferencia disponibles")
+        st.info("📭 No hay estadísticas de inferencia disponibles")
+        st.markdown("💡 Realiza algunas predicciones para generar estadísticas")
+        st.markdown('</div>', unsafe_allow_html=True)
         return
     
+    # Resumen general
+    total_predictions = sum(model_stats["total_predictions"] for model_stats in stats.values())
+    st.metric("🎯 Total de Predicciones", total_predictions)
+    
+    # Selector de modelo
     modelo_seleccionado = st.selectbox(
-        "Seleccionar modelo para detalles",
-        list(stats.keys()) + ["Todos"],
+        "🔍 Seleccionar modelo para análisis detallado",
+        list(stats.keys()) + ["📊 Vista General"],
         index=len(stats)
     )
     
-    if modelo_seleccionado == "Todos":
-        st.subheader("Estadísticas de Todos los Modelos")
-        st.write(stats)
-    else:
-        st.subheader(f"Estadísticas para {modelo_seleccionado}")
-        st.write(stats[modelo_seleccionado])
+    if modelo_seleccionado == "📊 Vista General":
+        st.markdown("#### 🌐 Estadísticas Globales")
         
-        # Gráfico de uso (simulado)
-        usage_data = {
-            "timestamp": [datetime.now().strftime("%H:%M:%S") for _ in range(10)],
-            "predictions": [stats[modelo_seleccionado]["total_predictions"] - i*10 for i in range(10)]
-        }
-        fig = px.line(
-            pd.DataFrame(usage_data),
-            x="timestamp",
-            y="predictions",
-            title="Histórico de Predicciones (últimas 10 actualizaciones)"
+        # Crear DataFrame para visualización
+        df_stats = pd.DataFrame([
+            {
+                "Modelo": modelo,
+                "Predicciones": datos["total_predictions"],
+                "Último Uso": datos["last_used"][:10]
+            }
+            for modelo, datos in stats.items()
+        ])
+        
+        # Gráfico de barras
+        fig = px.bar(
+            df_stats, 
+            x="Modelo", 
+            y="Predicciones",
+            title="Uso por Modelo",
+            color="Predicciones",
+            color_continuous_scale="Viridis"
         )
-        st.plotly_chart(fig)
+        fig.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabla de estadísticas
+        st.dataframe(df_stats, use_container_width=True)
+        
+    else:
+        st.markdown(f"#### 🔍 Análisis Detallado: **{modelo_seleccionado}**")
+        model_stats = stats[modelo_seleccionado]
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🎯 Predicciones", model_stats["total_predictions"])
+        col2.metric("⏱️ Último Uso", model_stats["last_used"][:10])
+        col3.metric("📊 Promedio de Tiempo", model_stats.get("avg_time", "N/A"))
+        
+        st.markdown("---")
+        st.markdown("### Detalles de Inferencia")
+        st.write(f"Modelo: {modelo_seleccionado}")
+        st.write(f"Total de Predicciones: {model_stats['total_predictions']}")
+        st.write(f"Último Uso: {model_stats['last_used']}")
+        st.write(f"Promedio de Tiempo: {model_stats.get('avg_time', 'N/A')} segundos")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Función para iniciar la API ---
 
