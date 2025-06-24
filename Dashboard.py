@@ -1,244 +1,416 @@
 import streamlit as st
+import requests
 import pandas as pd
 import json
-import matplotlib.pyplot as plt
-import seaborn as sns
-import plotly.express as px
-import plotly.graph_objects as go
-import requests
-from datetime import datetime
 import time
+import os
+from datetime import datetime
+import plotly.express as px
 
-# Importar los monitores mejorados
-try:
-    from ray_monitor import RayMonitor, create_ray_monitor
-    from ray_diagnostics import diagnose_ray_connection
-except ImportError:
-    st.error("No se pudieron importar los módulos de Ray. Asegúrate de tener ray_monitor_improved.py y ray_diagnostics.py")
-    st.stop()
-
-# Configuración inicial
-st.set_page_config(layout="wide", page_title="ML Dashboard", page_icon="🚀")
-
-# CSS personalizado para mejorar la apariencia
-st.markdown("""
-<style>
-.metric-card {
-    background-color: #f0f2f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    border-left: 4px solid #ff6b6b;
-}
-.status-good { color: #28a745; font-weight: bold; }
-.status-bad { color: #dc3545; font-weight: bold; }
-.status-warning { color: #ffc107; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
-# Estado de la sesión
-if 'ray_monitor' not in st.session_state:
-    st.session_state.ray_monitor = None
-if 'ray_connected' not in st.session_state:
-    st.session_state.ray_connected = False
-
-# Funciones auxiliares
-def load_training_results():
-    try:
-        with open('training_results/training_results.json') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        st.warning("📁 No se encontraron resultados de entrenamiento")
-        return {}
-
-def render_metrics_comparison(results):
-    if not results:
-        st.info("📊 No hay resultados de entrenamiento para mostrar")
-        return
-        
-    df = pd.DataFrame.from_dict(results, orient='index')
-    st.header("📈 Comparación de Modelos")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🎯 Métricas Clave")
-        st.dataframe(df[['mse', 'mae', 'r2']].sort_values('mse'), use_container_width=True)
-    
-    with col2:
-        st.subheader("⏱️ Tiempo de Entrenamiento")
-        fig = px.bar(df, x=df.index, y='training_time', 
-                     labels={'index':'Modelo', 'training_time':'Tiempo (s)'},
-                     color='training_time', color_continuous_scale='viridis')
-        st.plotly_chart(fig, use_container_width=True)
-
-def show_connection_diagnostics():
-    """Muestra diagnósticos de conexión a Ray"""
-    st.header("🔧 Diagnósticos de Conexión")
-    
-    with st.expander("🔍 Ejecutar Diagnóstico Completo", expanded=False):
-        if st.button("Ejecutar Diagnóstico", type="primary"):
-            with st.spinner("Ejecutando diagnósticos..."):
-                # Capturar salida de diagnóstico
-                import io
-                import sys
-                
-                old_stdout = sys.stdout
-                sys.stdout = captured_output = io.StringIO()
-                
-                try:
-                    diagnose_ray_connection()
-                    output = captured_output.getvalue()
-                finally:
-                    sys.stdout = old_stdout
-                
-                st.text(output)
-
-def show_ray_dashboard():
-    st.header("🖥️ Monitoreo del Cluster Ray")
-    
-    # Configuración de conexión
-    with st.sidebar:
-        st.subheader("⚙️ Configuración Ray")
-        ray_url = st.text_input("URL de Ray Dashboard", value="http://ray-head:8265")
-        
-        if st.button("🔄 Reconectar"):
-            st.session_state.ray_monitor = RayMonitor(ray_url)
-            st.session_state.ray_connected = False
-    
-    # Inicializar monitor si no existe
-    if st.session_state.ray_monitor is None:
-        st.session_state.ray_monitor = create_ray_monitor(ray_url)
-    
-    monitor = st.session_state.ray_monitor
-    
-    # Verificar salud del cluster
-    health = monitor.health_check()
-    
-    # Mostrar estado de conexión
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        status_class = "status-good" if health["connection"] else "status-bad"
-        st.markdown(f'<p class="{status_class}">🔗 Conexión: {"✅" if health["connection"] else "❌"}</p>', 
-                   unsafe_allow_html=True)
-    
-    with col2:
-        status_class = "status-good" if health["api_accessible"] else "status-bad"
-        st.markdown(f'<p class="{status_class}">🔌 API: {"✅" if health["api_accessible"] else "❌"}</p>', 
-                   unsafe_allow_html=True)
-    
-    with col3:
-        status_class = "status-good" if health["nodes_available"] else "status-bad"
-        st.markdown(f'<p class="{status_class}">🖥️ Nodos: {"✅" if health["nodes_available"] else "❌"}</p>', 
-                   unsafe_allow_html=True)
-    
-    with col4:
-        status_class = "status-good" if health["overall_healthy"] else "status-bad"
-        st.markdown(f'<p class="{status_class}">🏥 Estado: {"Sano" if health["overall_healthy"] else "Problema"}</p>', 
-                   unsafe_allow_html=True)
-    
-    # Si no hay conexión, mostrar diagnósticos
-    if not health["overall_healthy"]:
-        st.error("❌ No se pudo conectar al cluster de Ray")
-        show_connection_diagnostics()
-        return
-    
-    # Dashboard principal
-    st.session_state.ray_connected = True
-    
-    # Resumen de recursos
-    resource_usage = monitor.get_resource_usage()
-    if resource_usage:
-        st.subheader("📊 Resumen de Recursos")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("🖥️ Nodos Totales", resource_usage.get("total_nodes", 0))
-        with col2:
-            st.metric("✅ Nodos Activos", resource_usage.get("active_nodes", 0))
-        with col3:
-            st.metric("🔧 CPU Cores", resource_usage.get("total_cpu_cores", 0))
-        with col4:
-            st.metric("💾 Memoria (GB)", resource_usage.get("total_memory_gb", 0))
-    
-    # Tabla de nodos
-    st.subheader("🖥️ Nodos del Cluster")
-    nodes_df = monitor.get_nodes_data()
-    
-    if not nodes_df.empty:
-        st.dataframe(nodes_df, use_container_width=True, hide_index=True)
-        
-        # Gráficos de recursos
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("💾 Distribución de Memoria")
-            fig = px.pie(nodes_df, values='Memory (GB)', names='Node ID', 
-                        title="Memoria por Nodo")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("🔧 Distribución de CPU")
-            fig = px.bar(nodes_df, x='Node ID', y='CPU Cores', 
-                        color='State', title="CPU Cores por Nodo")
-            st.plotly_chart(fig, use_container_width=True)
+def obtener_url_base_api():
+    if os.environ.get('API_BASE_URL'):
+        return os.environ.get('API_BASE_URL')
+    elif os.path.exists('/.dockerenv') or os.environ.get('CONTAINER_NAME'):
+        return "http://ml-api:8000"
     else:
-        st.warning("⚠️ No se pudieron obtener datos de los nodos")
+        return "http://localhost:8000"
 
-def show_predictions_interface():
-    """Interfaz para hacer predicciones"""
-    st.header("🔮 Interfaz de Predicciones")
-    
-    # Verificar si Ray está conectado
-    if not st.session_state.ray_connected:
-        st.warning("⚠️ Necesitas conectar a Ray primero para hacer predicciones")
-        return
-    
-    st.info("🚧 Implementar interfaz de predicciones aquí")
-    
-    # Ejemplo de interfaz
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📥 Entrada de Datos")
-        uploaded_file = st.file_uploader("Subir archivo CSV", type=['csv'])
-        
-        if uploaded_file is not None:
-            df = pd.read_csv(uploaded_file)
-            st.write("Vista previa de datos:")
-            st.dataframe(df.head())
-    
-    with col2:
-        st.subheader("⚙️ Configuración del Modelo")
-        model_type = st.selectbox("Tipo de Modelo", 
-                                 ["Linear Regression", "Random Forest", "XGBoost"])
-        batch_size = st.slider("Tamaño de lote", 1, 1000, 100)
-        
-        if st.button("🚀 Ejecutar Predicción"):
-            st.success("✅ Predicción ejecutada (simulada)")
+URL_BASE_API = obtener_url_base_api()
 
+# Helper functions
+def make_get_request(endpoint):
+    try:
+        response = requests.get(f"{URL_BASE_API}{endpoint}")
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error making request to {endpoint}: {str(e)}")
+        return None
+
+def make_post_request(endpoint, data=None, files=None):
+    try:
+        if files:
+            response = requests.post(f"{URL_BASE_API}{endpoint}", files=files)
+        else:
+            headers = {'Content-Type': 'application/json'}
+            response = requests.post(
+                f"{URL_BASE_API}{endpoint}", 
+                json=data,
+                headers=headers
+            )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error making request to {endpoint}: {str(e)}")
+        return None
+
+def display_model_info(model_info):
+    st.subheader("Model Information")
+    st.json(model_info)
+
+def display_cluster_status(status):
+    st.subheader("Cluster Status")
+    
+    cols = st.columns(4)
+    cols[0].metric("Total Nodes", status['total_nodes'])
+    cols[1].metric("Alive Nodes", status['alive_nodes'])
+    cols[2].metric("Total CPUs", status['total_cpus'])
+    cols[3].metric("Total Memory (GB)", status['total_memory_gb'])
+    
+    st.write("### Node Details")
+    st.dataframe(pd.DataFrame(status['node_details']))
+
+def display_inference_stats(stats):
+    st.subheader("Inference Statistics")
+    
+    cols = st.columns(4)
+    cols[0].metric("Total Predictions", stats['total_predictions'])
+    cols[1].metric("Avg Prediction Time (s)", f"{stats['avg_prediction_time']:.4f}")
+    cols[2].metric("Errors", stats['error_count'])
+    cols[3].metric("Uptime (hours)", f"{stats['uptime_hours']:.2f}")
+    
+    if stats['model_usage']:
+        st.write("### Model Usage")
+        usage_df = pd.DataFrame.from_dict(stats['model_usage'], orient='index', columns=['Count'])
+        st.dataframe(usage_df.sort_values('Count', ascending=False))
+        
+        fig = px.pie(usage_df, values='Count', names=usage_df.index, title='Model Usage Distribution')
+        st.plotly_chart(fig)
+
+def display_training_results(results):
+    st.subheader("Training Results")
+    
+    if isinstance(results, dict) and 'results' in results:
+        summary = results.copy()
+        results_data = summary.pop('results')
+        
+        st.write("### Summary")
+        cols = st.columns(4)
+        cols[0].metric("Total Models", summary['total_models'])
+        cols[1].metric("Successful Models", summary['successful_models'])
+        cols[2].metric("Regression Models", summary['regression_models'])
+        cols[3].metric("Classification Models", summary['classification_models'])
+        
+        st.write("### Detailed Results")
+        results_df = pd.DataFrame.from_dict(results_data, orient='index')
+        st.dataframe(results_df)
+    else:
+        st.write(results)
+
+# Main app
 def main():
-    st.title("🚀 Panel de Control de ML Distribuido")
-    st.markdown("---")
+    st.set_page_config(page_title="Distributed ML API Dashboard", layout="wide")
+    st.title("Distributed ML API Dashboard")
     
-    # Tabs principales
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Modelos", "🖥️ Monitoreo Ray", "🔮 Predicciones", "🔧 Diagnósticos"])
+    # Health check
+    with st.expander("System Health"):
+        health = make_get_request("/health")
+        if health:
+            cols = st.columns(4)
+            cols[0].metric("Status", health['status'])
+            cols[1].metric("Models Loaded", health['models_loaded'])
+            cols[2].metric("Cluster Nodes", health['cluster_nodes'])
+            cols[3].metric("Uptime (hours)", f"{health['uptime_hours']:.2f}")
+            
+            st.write(f"Last check: {health['timestamp']}")
     
+    # Tab layout
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Models", "Training", "Prediction", 
+        "Cluster Info", "Advanced"
+    ])
+    
+    # Models tab
     with tab1:
-        results = load_training_results()
-        render_metrics_comparison(results)
+        st.header("Model Management")
+        
+        # List models
+        if st.button("Refresh Models"):
+            st.session_state.models = make_get_request("/models")
+        
+        if 'models' not in st.session_state:
+            st.session_state.models = make_get_request("/models")
+        
+        if st.session_state.models:
+            st.write(f"Found {len(st.session_state.models)} models")
+            
+            # Model selection
+            model_names = [m['name'] for m in st.session_state.models]
+            selected_model = st.selectbox("Select a model", model_names)
+            
+            # Model details
+            if selected_model:
+                model_details = make_get_request(f"/models/{selected_model}")
+                if model_details:
+                    display_model_info(model_details)
+                    
+                    # Delete button
+                    if st.button("Delete Model"):
+                        result = requests.delete(f"{URL_BASE_API}/models/{selected_model}")
+                        if result.status_code == 200:
+                            st.success(f"Model {selected_model} deleted successfully")
+                            st.session_state.models = make_get_request("/models")
+                        else:
+                            st.error(f"Error deleting model: {result.text}")
+        
+        # Model search
+        st.subheader("Search Models")
+        search_query = st.text_input("Enter model name or algorithm")
+        if search_query:
+            search_results = make_get_request(f"/models/search/{search_query}")
+            if search_results:
+                st.dataframe(pd.DataFrame(search_results))
     
+    # Training tab
     with tab2:
-        show_ray_dashboard()
+        st.header("Model Training")
+        
+        with st.form("training_form"):
+            st.write("Configure training parameters")
+            
+            task_type = st.selectbox(
+                "Task Type",
+                ["regression", "classification", "both"],
+                index=2
+            )
+            
+            test_size = st.slider(
+                "Test Size Ratio",
+                min_value=0.1,
+                max_value=0.5,
+                value=0.3,
+                step=0.05
+            )
+            
+            # Get available algorithms
+            algorithms = make_get_request("/algorithms")
+            if algorithms:
+                all_algorithms = []
+                if algorithms['algorithms']['regression']:
+                    all_algorithms.extend([
+                        f"Regression: {name}" 
+                        for name in algorithms['algorithms']['regression']
+                    ])
+                if algorithms['algorithms']['classification']:
+                    all_algorithms.extend([
+                        f"Classification: {name}" 
+                        for name in algorithms['algorithms']['classification']
+                    ])
+                
+                selected_algorithms = st.multiselect(
+                    "Select algorithms (leave empty for all)",
+                    all_algorithms
+                )
+                
+                # Extract just the algorithm names
+                selected_models = [
+                    alg.split(": ")[1] 
+                    for alg in selected_algorithms
+                ] if selected_algorithms else None
+            
+            submit_train = st.form_submit_button("Start Training")
+            
+            if submit_train:
+                with st.spinner("Starting training job..."):
+                    training_request = {
+                        "task_type": task_type,
+                        "test_size": test_size,
+                        "selected_models": selected_models
+                    }
+                    
+                    response = make_post_request("/train", training_request)
+                    if response:
+                        st.success("Training started in background!")
+                        st.json(response)
+        
+        # Training results
+        if st.button("View Training Results"):
+            results = make_get_request("/training/results")
+            if results:
+                display_training_results(results)
     
+    # Prediction tab
     with tab3:
-        show_predictions_interface()
+        st.header("Model Prediction")
+        
+        pred_tab1, pred_tab2 = st.tabs(["Single Prediction", "Batch Prediction"])
+        
+        with pred_tab1:
+            st.subheader("Single Prediction")
+            
+            if 'models' in st.session_state and st.session_state.models:
+                model_names = [m['name'] for m in st.session_state.models]
+                selected_model = st.selectbox(
+                    "Select model for prediction",
+                    model_names,
+                    key="pred_model_select"
+                )
+                
+                # Feature input
+                st.write("Enter feature values:")
+                
+                # Dynamically create input fields based on selected model
+                if selected_model:
+                    model_details = make_get_request(f"/models/{selected_model}")
+                    if model_details and 'pipeline_steps' in model_details:
+                        num_features = len(model_details['pipeline_steps'])
+                    else:
+                        # Default to 3 features if we can't determine
+                        num_features = 3
+                    
+                    features = []
+                    cols = st.columns(3)
+                    for i in range(num_features):
+                        with cols[i % 3]:
+                            feature = st.number_input(
+                                f"Feature {i+1}",
+                                value=0.0,
+                                key=f"feature_{i}"
+                            )
+                            features.append(feature)
+                    
+                    return_proba = st.checkbox(
+                        "Return probabilities (classification only)",
+                        value=False
+                    )
+                    
+                    if st.button("Predict"):
+                        prediction_request = {
+                            "model_name": selected_model,
+                            "features": [features],
+                            "return_probabilities": return_proba
+                        }
+                        
+                        with st.spinner("Making prediction..."):
+                            result = make_post_request("/predict", prediction_request)
+                            if result:
+                                st.success("Prediction successful!")
+                                st.write("### Prediction Result")
+                                st.json(result)
+                                
+                                # Display nicely formatted results
+                                st.write("### Formatted Results")
+                                cols = st.columns(2)
+                                cols[0].metric("Prediction", result['predictions'][0])
+                                cols[1].metric("Prediction Time (s)", f"{result['prediction_time']:.4f}")
+                                
+                                if result.get('probabilities'):
+                                    st.write("### Probabilities")
+                                    prob_df = pd.DataFrame(
+                                        result['probabilities'],
+                                        columns=[f"Class {i}" for i in range(len(result['probabilities'][0]))]
+                                    )
+                                    st.dataframe(prob_df)
+        
+        with pred_tab2:
+            st.subheader("Batch Prediction")
+            
+            if 'models' in st.session_state and st.session_state.models:
+                model_names = [m['name'] for m in st.session_state.models]
+                selected_model = st.selectbox(
+                    "Select model for batch prediction",
+                    model_names,
+                    key="batch_model_select"
+                )
+                
+                return_proba = st.checkbox(
+                    "Return probabilities (classification only)",
+                    value=False,
+                    key="batch_proba"
+                )
+                
+                uploaded_file = st.file_uploader(
+                    "Upload CSV file with features",
+                    type=["csv"]
+                )
+                
+                if uploaded_file is not None and selected_model:
+                    if st.button("Predict Batch"):
+                        with st.spinner("Processing batch prediction..."):
+                            # Create proper multipart form data
+                            files = {'file': (uploaded_file.name, uploaded_file.getvalue(), 'text/csv')}
+                            data = {
+                                'model_name': selected_model,
+                                'return_probabilities': str(return_proba).lower()
+                            }
+                            
+                            response = requests.post(
+                                f"{URL_BASE_API}/predict/batch",
+                                files=files,
+                                data=data
+                            )
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                st.success("Batch prediction completed!")
+                                
+                                # Display results
+                                st.write("### Predictions")
+                                predictions_df = pd.DataFrame({
+                                    "Predictions": result['predictions']
+                                })
+                                st.dataframe(predictions_df)
+                                
+                                if 'probabilities' in result and result['probabilities']:
+                                    st.write("### Probabilities")
+                                    prob_df = pd.DataFrame(result['probabilities'])
+                                    st.dataframe(prob_df)
+                                
+                                st.write("### Metrics")
+                                cols = st.columns(2)
+                                cols[0].metric("Batch Size", result['batch_size'])
+                                cols[1].metric("Prediction Time (s)", 
+                                             f"{result['batch_prediction_time']:.4f}")
+                            else:
+                                st.error(f"Error in batch prediction: {response.text}")
     
+    # Cluster Info tab
     with tab4:
-        show_connection_diagnostics()
+        st.header("Cluster Information")
+        
+        if st.button("Refresh Cluster Status"):
+            status = make_get_request("/cluster/status")
+            if status:
+                display_cluster_status(status)
+        
+        if 'cluster_status' not in st.session_state:
+            st.session_state.cluster_status = make_get_request("/cluster/status")
+        
+        if st.session_state.cluster_status:
+            display_cluster_status(st.session_state.cluster_status)
+        
+        st.subheader("Inference Statistics")
+        stats = make_get_request("/inference-stats")
+        if stats:
+            display_inference_stats(stats)
     
-    # Footer
-    st.markdown("---")
-    st.markdown("🕐 Última actualización: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # Advanced tab
+    with tab5:
+        st.header("Advanced Operations")
+        
+        if st.button("View Available Algorithms"):
+            algorithms = make_get_request("/algorithms")
+            if algorithms:
+                st.write(f"Total algorithms: {algorithms['total_algorithms']}")
+                
+                st.write("### Regression Algorithms")
+                reg_df = pd.DataFrame.from_dict(
+                    algorithms['algorithms']['regression'], 
+                    orient='index'
+                )
+                st.dataframe(reg_df)
+                
+                st.write("### Classification Algorithms")
+                clf_df = pd.DataFrame.from_dict(
+                    algorithms['algorithms']['classification'], 
+                    orient='index'
+                )
+                st.dataframe(clf_df)
+        
+        if st.button("View Raw Health Check"):
+            health = make_get_request("/health")
+            if health:
+                st.json(health)
 
 if __name__ == "__main__":
     main()
