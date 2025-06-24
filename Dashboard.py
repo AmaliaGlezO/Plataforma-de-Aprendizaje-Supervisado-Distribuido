@@ -97,6 +97,33 @@ def display_training_results(results):
     else:
         st.write(results)
 
+def display_prediction_results(result, is_regression):
+    st.success("Prediction successful!")
+    st.write("### Prediction Result")
+    
+    # Mostrar resultados en formato adecuado
+    if is_regression:
+        cols = st.columns(3)
+        cols[0].metric("Predicted Value", f"{result['predictions'][0]:.2f}")
+        cols[1].metric("Prediction Time", f"{result['prediction_time']:.4f}s")
+        cols[2].metric("Features Used", result['feature_count'])
+    else:
+        cols = st.columns(4)
+        cols[0].metric("Predicted Class", result['predictions'][0])
+        cols[1].metric("Confidence", 
+                      f"{max(result['probabilities'][0])*100:.1f}%" if result.get('probabilities') else "N/A")
+        cols[2].metric("Prediction Time", f"{result['prediction_time']:.4f}s")
+        cols[3].metric("Is High", "Yes" if result['predictions'][0] == 1 else "No")
+    
+    # Mostrar probabilidades si es clasificación
+    if result.get('probabilities'):
+        st.write("### Class Probabilities")
+        prob_df = pd.DataFrame(
+            result['probabilities'],
+            columns=[f"Class {i}" for i in range(len(result['probabilities'][0]))]
+        )
+        st.dataframe(prob_df.style.format("{:.2%}"))
+
 # Main app
 def main():
     st.set_page_config(page_title="Distributed ML API Dashboard", layout="wide")
@@ -235,45 +262,71 @@ def main():
         
         pred_tab1, pred_tab2 = st.tabs(["Single Prediction", "Batch Prediction"])
         
-        with pred_tab1:
-            st.subheader("Single Prediction")
+       # En la sección de Prediction tab (dentro de pred_tab1), reemplazar el código actual con:
+
+    with pred_tab1:
+        st.subheader("Single Prediction")
+        
+        if 'models' in st.session_state and st.session_state.models:
+            model_names = [m['name'] for m in st.session_state.models]
+            selected_model = st.selectbox(
+                "Select model for prediction",
+                model_names,
+                key="pred_model_select"
+            )
             
-            if 'models' in st.session_state and st.session_state.models:
-                model_names = [m['name'] for m in st.session_state.models]
-                selected_model = st.selectbox(
-                    "Select model for prediction",
-                    model_names,
-                    key="pred_model_select"
-                )
-                
-                # Feature input
-                st.write("Enter feature values:")
-                
-                # Dynamically create input fields based on selected model
-                if selected_model:
-                    model_details = make_get_request(f"/models/{selected_model}")
-                    if model_details and 'pipeline_steps' in model_details:
-                        num_features = len(model_details['pipeline_steps'])
-                    else:
-                        # Default to 3 features if we can't determine
-                        num_features = 3
+            # Feature input
+            st.write("Enter feature values:")
+            
+            if selected_model:
+                model_details = make_get_request(f"/models/{selected_model}")
+                if model_details:
+                    is_regression = "_REG" in selected_model
+                    is_classification = "_CLF" in selected_model
                     
+                    # Definición completa de 18 características
+                    feature_config = [
+                        {"name": "year", "desc": "Año (2020-2025)", "default": 2023, "type": int},
+                        {"name": "month_num", "desc": "Mes (1-12)", "default": 6, "type": int},
+                        {"name": "day", "desc": "Día del mes (1-31)", "default": 15, "type": int},
+                        {"name": "hour", "desc": "Hora (0-23)", "default": 14, "type": int},
+                        {"name": "day_of_week", "desc": "Día semana (0=lunes)", "default": 2, "type": int},
+                        {"name": "is_weekend", "desc": "Fin de semana (0=no, 1=sí)", "default": 0, "type": int},
+                        {"name": "disponibilidad", "desc": "Disponibilidad energética (MW)", "default": 5000.0, "type": float},
+                        {"name": "demanda_maxima", "desc": "Demanda máxima (MW)", "default": 5500.0, "type": float},
+                        {"name": "deficit", "desc": "Déficit actual (MW)", "default": 0.0, "type": float},
+                        {"name": "capacidad_utilizada", "desc": "Capacidad utilizada (ratio)", "default": 0.909, "type": float},
+                        {"name": "deficit_ratio", "desc": "Ratio de déficit", "default": 0.0, "type": float},
+                        {"name": "respaldo_ratio", "desc": "Ratio de respaldo", "default": 0.2, "type": float},
+                        {"name": "temp_ambiente", "desc": "Temperatura ambiente (°C)", "default": 25.5, "type": float},
+                        {"name": "humedad", "desc": "Humedad relativa (%)", "default": 60.0, "type": float},
+                        {"name": "precio_energia", "desc": "Precio energía (€/MWh)", "default": 45.30, "type": float},
+                        {"name": "indice_consumo", "desc": "Índice de consumo", "default": 1.2, "type": float},
+                        {"name": "categoria_horaria", "desc": "Categoría horaria (1-3)", "default": 2, "type": int},
+                        {"name": "estacion", "desc": "Estación del año (1-4)", "default": 3, "type": int}
+                    ]
+                    
+                    # Mostrar campos de entrada organizados
                     features = []
                     cols = st.columns(3)
-                    for i in range(num_features):
+                    for i, feat in enumerate(feature_config):
                         with cols[i % 3]:
                             feature = st.number_input(
-                                f"Feature {i+1}",
-                                value=0.0,
-                                key=f"feature_{i}"
+                                feat["desc"],
+                                value=feat["default"],
+                                key=f"feature_{i}",
+                                step=1.0 if feat["type"] == float else 1
                             )
                             features.append(feature)
                     
+                    # Configuración de probabilidades
                     return_proba = st.checkbox(
                         "Return probabilities (classification only)",
-                        value=False
+                        value=False,
+                        disabled=is_regression
                     )
                     
+                    # Botón de predicción
                     if st.button("Predict"):
                         prediction_request = {
                             "model_name": selected_model,
@@ -284,24 +337,8 @@ def main():
                         with st.spinner("Making prediction..."):
                             result = make_post_request("/predict", prediction_request)
                             if result:
-                                st.success("Prediction successful!")
-                                st.write("### Prediction Result")
-                                st.json(result)
-                                
-                                # Display nicely formatted results
-                                st.write("### Formatted Results")
-                                cols = st.columns(2)
-                                cols[0].metric("Prediction", result['predictions'][0])
-                                cols[1].metric("Prediction Time (s)", f"{result['prediction_time']:.4f}")
-                                
-                                if result.get('probabilities'):
-                                    st.write("### Probabilities")
-                                    prob_df = pd.DataFrame(
-                                        result['probabilities'],
-                                        columns=[f"Class {i}" for i in range(len(result['probabilities'][0]))]
-                                    )
-                                    st.dataframe(prob_df)
-        
+                                display_prediction_results(result, is_regression)
+            
         with pred_tab2:
             st.subheader("Batch Prediction")
             

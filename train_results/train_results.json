@@ -2,7 +2,7 @@
   "RandomForest_REG": {
     "model_name": "RandomForest_REG",
     "task_type": "regression",
-    "training_time": 0.7600846290588379,
+    "training_time": 1.1003518104553223,
     "status": "success",
     "mse": 290.4200830014688,
     "mae": 5.347330372563532,
@@ -12,7 +12,7 @@
   "ExtraTrees_REG": {
     "model_name": "ExtraTrees_REG",
     "task_type": "regression",
-    "training_time": 0.37993645668029785,
+    "training_time": 0.4939415454864502,
     "status": "success",
     "mse": 81.137121376431,
     "mae": 4.3496138324364875,
@@ -22,7 +22,7 @@
   "GradientBoosting_REG": {
     "model_name": "GradientBoosting_REG",
     "task_type": "regression",
-    "training_time": 0.382704496383667,
+    "training_time": 0.42041873931884766,
     "status": "success",
     "mse": 256.084734897282,
     "mae": 5.228071365670154,
@@ -32,7 +32,7 @@
   "HistGradientBoosting_REG": {
     "model_name": "HistGradientBoosting_REG",
     "task_type": "regression",
-    "training_time": 0.2993466854095459,
+    "training_time": 0.3211395740509033,
     "status": "success",
     "mse": 374.15762715763526,
     "mae": 6.249085360431728,
@@ -42,7 +42,7 @@
   "AdaBoost_REG": {
     "model_name": "AdaBoost_REG",
     "task_type": "regression",
-    "training_time": 0.2162473201751709,
+    "training_time": 0.23080182075500488,
     "status": "success",
     "mse": 721.090752219277,
     "mae": 18.767010412716157,
@@ -52,7 +52,7 @@
   "Bagging_REG": {
     "model_name": "Bagging_REG",
     "task_type": "regression",
-    "training_time": 0.426908016204834,
+    "training_time": 0.4898526668548584,
     "status": "success",
     "mse": 276.8049968911919,
     "mae": 5.515129533678757,
@@ -62,7 +62,7 @@
   "LinearRegression_REG": {
     "model_name": "LinearRegression_REG",
     "task_type": "regression",
-    "training_time": 0.008480310440063477,
+    "training_time": 0.016185283660888672,
     "status": "success",
     "mse": 111.79543418712302,
     "mae": 1.4987283167245824,
@@ -72,7 +72,7 @@
   "Ridge_REG": {
     "model_name": "Ridge_REG",
     "task_type": "regression",
-    "training_time": 0.010184049606323242,
+    "training_time": 0.013880491256713867,
     "status": "success",
     "mse": 60.1914294319159,
     "mae": 5.043025043231813,
@@ -82,7 +82,7 @@
   "Lasso_REG": {
     "model_name": "Lasso_REG",
     "task_type": "regression",
-    "training_time": 0.014926910400390625,
+    "training_time": 0.02809286117553711,
     "status": "success",
     "mse": 59.74930425994162,
     "mae": 1.9255317555582059,
@@ -92,7 +92,7 @@
   "ElasticNet_REG": {
     "model_name": "ElasticNet_REG",
     "task_type": "regression",
-    "training_time": 0.006339073181152344,
+    "training_time": 0.01597881317138672,
     "status": "success",
     "mse": 3139.9356333335168,
     "mae": 46.928073857061406,
@@ -102,7 +102,7 @@
   "BayesianRidge_REG": {
     "model_name": "BayesianRidge_REG",
     "task_type": "regression",
-    "training_time": 0.007929325103759766,
+    "training_time": 0.014394044876098633,
     "status": "success",
     "mse": 111.67647256597894,
     "mae": 1.502976938034184,
@@ -112,7 +112,7 @@
   "HuberRegressor_REG": {
     "model_name": "HuberRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.08155417442321777,
+    "training_time": 0.14744830131530762,
     "status": "success",
     "mse": 42.95234424673338,
     "mae": 1.1003656561420931,
@@ -122,7 +122,7 @@
   "TheilSenRegressor_REG": {
     "model_name": "TheilSenRegressor_REG",
     "task_type": "regression",
-    "training_time": 1.557140827178955,
+    "training_time": 2.030644655227661,
     "status": "success",
     "mse": 10048.488266961784,
     "mae": 21.939921364897543,
@@ -132,7 +132,7 @@
   "RANSACRegressor_REG": {
     "model_name": "RANSACRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.02274012565612793,
+    "training_time": 0.02187347412109375,
     "status": "success",
     "mse": 111.79543418712302,
     "mae": 1.4987283167245824,
@@ -142,7 +142,7 @@
   "SGDRegressor_REG": {
     "model_name": "SGDRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.07920265197753906,
+    "training_time": 0.14089417457580566,
     "status": "success",
     "mse": 67.34016473109965,
     "mae": 5.753624937148728,
@@ -152,7 +152,7 @@
   "PassiveAggressiveRegressor_REG": {
     "model_name": "PassiveAggressiveRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.012900829315185547,
+    "training_time": 0.021559953689575195,
     "status": "success",
     "mse": 52.79235983663792,
     "mae": 2.760025568941273,
@@ -162,7 +162,7 @@
   "SVR_REG": {
     "model_name": "SVR_REG",
     "task_type": "regression",
-    "training_time": 0.024174213409423828,
+    "training_time": 0.0591585636138916,
     "status": "success",
     "mse": 215571.70130552622,
     "mae": 400.3302976061848,
@@ -172,7 +172,7 @@
   "LinearSVR_REG": {
     "model_name": "LinearSVR_REG",
     "task_type": "regression",
-    "training_time": 0.009865999221801758,
+    "training_time": 0.020478010177612305,
     "status": "success",
     "mse": 166458.1295882846,
     "mae": 328.04157855862024,
@@ -182,7 +182,7 @@
   "NuSVR_REG": {
     "model_name": "NuSVR_REG",
     "task_type": "regression",
-    "training_time": 0.02023482322692871,
+    "training_time": 0.02991962432861328,
     "status": "success",
     "mse": 223623.282553296,
     "mae": 416.868504629756,
@@ -192,7 +192,7 @@
   "DecisionTree_REG": {
     "model_name": "DecisionTree_REG",
     "task_type": "regression",
-    "training_time": 0.017487525939941406,
+    "training_time": 0.024951457977294922,
     "status": "success",
     "mse": 443.6023316062176,
     "mae": 6.8782383419689115,
@@ -202,7 +202,7 @@
   "ExtraTree_REG": {
     "model_name": "ExtraTree_REG",
     "task_type": "regression",
-    "training_time": 0.012942314147949219,
+    "training_time": 0.014010429382324219,
     "status": "success",
     "mse": 427.21818832757623,
     "mae": 11.701770293609671,
@@ -212,7 +212,7 @@
   "KNeighbors_REG": {
     "model_name": "KNeighbors_REG",
     "task_type": "regression",
-    "training_time": 0.03464674949645996,
+    "training_time": 0.04524803161621094,
     "status": "success",
     "mse": 12413.536165803109,
     "mae": 88.54922279792746,
@@ -222,7 +222,7 @@
   "MLPRegressor_REG": {
     "model_name": "MLPRegressor_REG",
     "task_type": "regression",
-    "training_time": 1.1719694137573242,
+    "training_time": 1.4690618515014648,
     "status": "success",
     "mse": 69277.47459267644,
     "mae": 206.71173049746616,
@@ -232,7 +232,7 @@
   "GaussianProcess_REG": {
     "model_name": "GaussianProcess_REG",
     "task_type": "regression",
-    "training_time": 0.056806087493896484,
+    "training_time": 0.06920480728149414,
     "status": "success",
     "mse": 315618.65158881986,
     "mae": 418.00334257814524,
@@ -242,7 +242,7 @@
   "KernelRidge_REG": {
     "model_name": "KernelRidge_REG",
     "task_type": "regression",
-    "training_time": 0.013590574264526367,
+    "training_time": 0.049025774002075195,
     "status": "success",
     "mse": 596409.5348374319,
     "mae": 767.2018856831594,
@@ -252,7 +252,7 @@
   "PLSRegression_REG": {
     "model_name": "PLSRegression_REG",
     "task_type": "regression",
-    "training_time": 0.007069826126098633,
+    "training_time": 0.010690927505493164,
     "status": "success",
     "mse": 720.3417404990615,
     "mae": 20.43472633381,
@@ -262,7 +262,7 @@
   "DummyRegressor_REG": {
     "model_name": "DummyRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.005862236022949219,
+    "training_time": 0.014071226119995117,
     "status": "success",
     "mse": 246656.1760319995,
     "mae": 438.6057665618061,
@@ -272,7 +272,7 @@
   "VotingRegressor_REG": {
     "model_name": "VotingRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.09690475463867188,
+    "training_time": 0.17776060104370117,
     "status": "success",
     "mse": 3723.993374478744,
     "mae": 52.417856222329405,
@@ -282,7 +282,7 @@
   "StackingRegressor_REG": {
     "model_name": "StackingRegressor_REG",
     "task_type": "regression",
-    "training_time": 0.36988210678100586,
+    "training_time": 0.501957893371582,
     "status": "success",
     "mse": 130.29896448556912,
     "mae": 2.081151740726231,

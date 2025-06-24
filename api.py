@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
 from pathlib import Path
 from contextlib import asynccontextmanager
+from fastapi import Form
 
 import numpy as np
 import pandas as pd
@@ -424,10 +425,13 @@ async def predict(request: PredictionRequest):
         update_inference_stats(request.model_name, 0, False)
         logger.error(f"❌ Error en predicción: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 @app.post("/predict/batch")
 async def predict_batch(
-    request: BatchPredictionRequest,
+    model_name: str = Form(...),
+    return_probabilities: bool = Form(False),
     file: UploadFile = File(..., description="CSV file with features")
 ):
     """Predicción por lotes desde CSV"""
@@ -446,9 +450,9 @@ async def predict_batch(
         
         # Crear request de predicción
         pred_request = PredictionRequest(
-            model_name=request.model_name,
+            model_name=model_name,
             features=features,
-            return_probabilities=request.return_probabilities
+            return_probabilities=return_probabilities
         )
         
         # Usar el endpoint de predicción individual
