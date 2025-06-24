@@ -408,3 +408,10 @@ def obtener_todos_los_nodos_ray() -> List[Dict]:
     except Exception as e:
         st.error(f"Error obteniendo nodos: {str(e)}")
         return []
+
+if __name__ == '__main__':
+    estado_cluster = obtener_estado_cluster()
+    metricas_sistema = obtener_metricas_sistema()
+    renderizar_pestana_estado_cluster(estado_cluster, metricas_sistema)
+    st.write("---")
+    st.write("Estado del clúster y métricas del sistema mostrados.")

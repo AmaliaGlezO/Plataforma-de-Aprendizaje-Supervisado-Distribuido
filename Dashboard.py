@@ -1,285 +1,244 @@
-"""
-Centro de Control ML Distribuido
-"""
-
 import streamlit as st
-import time
+import pandas as pd
+import json
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
 from datetime import datetime
+import time
 
-from modulos.utiles import initialize_session_state, load_custom_styles, get_unique_key
-from modulos.gestor_cluster import obtener_estado_cluster, obtener_metricas_sistema, renderizar_pestana_estado_cluster
-from modulos.interfaz_web import (renderizar_pestana_entrenamiento, renderizar_pestana_metricas_sistema)
-from modulos.servidor_api import renderizar_pestana_api
+# Importar los monitores mejorados
+try:
+    from ray_monitor import RayMonitor, create_ray_monitor
+    from ray_diagnostics import diagnose_ray_connection
+except ImportError:
+    st.error("No se pudieron importar los módulos de Ray. Asegúrate de tener ray_monitor_improved.py y ray_diagnostics.py")
+    st.stop()
 
-# Configuración de la página debe ser la primera llamada de Streamlit
-st.set_page_config(
-    page_title="Centro de Control ML Distribuido",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://docs.ray.io/',
-        'About': '### Centro de Control ML Distribuido\nPlataforma avanzada para orquestación de Machine Learning'
-    }
-)
+# Configuración inicial
+st.set_page_config(layout="wide", page_title="ML Dashboard", page_icon="🚀")
 
-# Estilos personalizados con la nueva paleta de colores
-def load_enhanced_styles():
-    st.markdown("""
-    <style>
-    /* Paleta de colores personalizada */
-    :root {
-        --gris-oscuro: #403D39;
-        --blanco-roto: #FFFCF2;
-        --naranja-terracota: #EB5E28;
-        --casi-negro: #252422;
-        --verde-grisaceo: #7E8D85;
-        --beige-claro: #D8D2C3;
-        --beige-grisaceo: #B8B2A6;
-        --beige-calido: #E0DAD1;
-        --marron-claro: #A68A64;
-        --verde-apagado: #6B705C;
-        --naranja-suave: #D4A373;
-    }
-
-    /* Fondo principal */
-    .main .block-container {
-        background: linear-gradient(135deg, var(--blanco-roto) 0%, var(--beige-claro) 100%);
-        padding: 2rem 1rem;
-    }
-
-    /* Header principal */
-    .dashboard-header {
-        background: linear-gradient(135deg, var(--casi-negro) 0%, var(--gris-oscuro) 100%);
-        padding: 2.5rem 2rem;
-        border-radius: 20px;
-        margin-bottom: 2rem;
-        text-align: center;
-        box-shadow: 0 8px 32px rgba(37, 36, 34, 0.3);
-        border: 2px solid var(--beige-grisaceo);
-    }
-
-    .dashboard-header h1 {
-        color: var(--blanco-roto);
-        font-size: 3rem;
-        margin-bottom: 0.5rem;
-        font-weight: 700;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
-    }
-
-    .dashboard-header h3 {
-        color: var(--naranja-suave);
-        font-size: 1.3rem;
-        margin: 0;
-        font-weight: 400;
-    }
-
-    /* Sidebar personalizada */
-    .css-1d391kg {
-        background: linear-gradient(180deg, var(--gris-oscuro) 0%, var(--casi-negro) 100%);
-    }
-
-    .sidebar .sidebar-content {
-        background: var(--gris-oscuro);
-        color: var(--blanco-roto);
-    }
-
-    /* Pestañas */
-    .stTabs [data-baseweb="tab-list"] {
-        background: var(--beige-calido);
-        border-radius: 15px;
-        padding: 0.5rem;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 16px rgba(64, 61, 57, 0.2);
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        color: var(--gris-oscuro);
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: 1rem;
-        padding: 0.8rem 1.5rem;
-        transition: all 0.3s ease;
-    }
-
-    .stTabs [data-baseweb="tab"]:hover {
-        background: var(--beige-grisaceo);
-        color: var(--casi-negro);
-    }
-
-    .stTabs [aria-selected="true"] {
-        background: var(--naranja-terracota) !important;
-        color: var(--blanco-roto) !important;
-        box-shadow: 0 4px 12px rgba(235, 94, 40, 0.4);
-    }
-
-    /* Métricas y tarjetas */
-    .metric-card {
-        background: linear-gradient(135deg, var(--blanco-roto) 0%, var(--beige-claro) 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        border: 2px solid var(--beige-grisaceo);
-        box-shadow: 0 6px 20px rgba(64, 61, 57, 0.15);
-        margin-bottom: 1rem;
-    }
-
-    /* Botones */
-    .stButton > button {
-        background: linear-gradient(135deg, var(--naranja-terracota) 0%, var(--naranja-suave) 100%);
-        color: var(--blanco-roto);
-        border: none;
-        border-radius: 12px;
-        padding: 0.8rem 2rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(235, 94, 40, 0.3);
-    }
-
-    .stButton > button:hover {
-        background: linear-gradient(135deg, var(--naranja-suave) 0%, var(--marron-claro) 100%);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(235, 94, 40, 0.4);
-    }
-
-    /* Toggle switches */
-    .stToggle > label {
-        background: var(--verde-grisaceo);
-        border-radius: 25px;
-    }
-
-    /* Alertas y notificaciones */
-    .stAlert {
-        border-radius: 12px;
-        border-left: 4px solid var(--naranja-terracota);
-        background: var(--beige-calido);
-        color: var(--casi-negro);
-    }
-
-    /* Selectbox y inputs */
-    .stSelectbox > div > div {
-        background: var(--beige-claro);
-        border: 2px solid var(--beige-grisaceo);
-        border-radius: 10px;
-        color: var(--casi-negro);
-    }
-
-    /* Texto general */
-    .stMarkdown {
-        color: var(--gris-oscuro);
-    }
-
-    /* Títulos de sección */
-    .section-title {
-        color: var(--casi-negro);
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 3px solid var(--naranja-terracota);
-    }
-
-    /* Contenedores de contenido */
-    .content-container {
-        background: var(--blanco-roto);
-        padding: 2rem;
-        border-radius: 15px;
-        border: 1px solid var(--beige-grisaceo);
-        box-shadow: 0 4px 16px rgba(64, 61, 57, 0.1);
-        margin-bottom: 1.5rem;
-    }
-
-    /* Status indicators */
-    .status-active {
-        color: var(--verde-apagado);
-        font-weight: bold;
-    }
-
-    .status-warning {
-        color: var(--naranja-terracota);
-        font-weight: bold;
-    }
-
-    .status-error {
-        color: var(--marron-claro);
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-load_enhanced_styles()
-initialize_session_state()
-
+# CSS personalizado para mejorar la apariencia
 st.markdown("""
-<div class="dashboard-header">
-    <h1>⚡ Centro de Control ML</h1>
-    <h3>Plataforma de Orquestación Distribuida</h3>
-</div>
+<style>
+.metric-card {
+    background-color: #f0f2f6;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid #ff6b6b;
+}
+.status-good { color: #28a745; font-weight: bold; }
+.status-bad { color: #dc3545; font-weight: bold; }
+.status-warning { color: #ffc107; font-weight: bold; }
+</style>
 """, unsafe_allow_html=True)
 
-# Títulos renovados para las pestañas
-tab_titles = [
-    "🎯 Monitor del Cluster",
-    "🔬 Laboratorio ML",
-    "🛡️ Gateway de Modelos",
-    "📊 Telemetría del Sistema",
-]
+# Estado de la sesión
+if 'ray_monitor' not in st.session_state:
+    st.session_state.ray_monitor = None
+if 'ray_connected' not in st.session_state:
+    st.session_state.ray_connected = False
 
-tabs = st.tabs(tab_titles)
+# Funciones auxiliares
+def load_training_results():
+    try:
+        with open('training_results/training_results.json') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.warning("📁 No se encontraron resultados de entrenamiento")
+        return {}
 
-cluster_status = obtener_estado_cluster()
-system_metrics = obtener_metricas_sistema()
-
-# Sidebar con nuevo estilo
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align: center; padding: 1rem; background: linear-gradient(135deg, #403D39 0%, #252422 100%); border-radius: 15px; margin-bottom: 1rem;">
-        <h2 style="color: #FFFCF2; margin: 0;">⚙️ Centro de Control</h2>
-    </div>
-    """, unsafe_allow_html=True)
+def render_metrics_comparison(results):
+    if not results:
+        st.info("📊 No hay resultados de entrenamiento para mostrar")
+        return
+        
+    df = pd.DataFrame.from_dict(results, orient='index')
+    st.header("📈 Comparación de Modelos")
     
-    auto_refresh = st.toggle(
-        "🔄 Actualización Automática (10s)",
-        value=st.session_state.auto_refresh,
-        key="auto_refresh_toggle",
-    )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🎯 Métricas Clave")
+        st.dataframe(df[['mse', 'mae', 'r2']].sort_values('mse'), use_container_width=True)
     
-    if auto_refresh:
-        st.session_state.auto_refresh = True
-        time.sleep(0.1)  
-        st.rerun()
+    with col2:
+        st.subheader("⏱️ Tiempo de Entrenamiento")
+        fig = px.bar(df, x=df.index, y='training_time', 
+                     labels={'index':'Modelo', 'training_time':'Tiempo (s)'},
+                     color='training_time', color_continuous_scale='viridis')
+        st.plotly_chart(fig, use_container_width=True)
+
+def show_connection_diagnostics():
+    """Muestra diagnósticos de conexión a Ray"""
+    st.header("🔧 Diagnósticos de Conexión")
+    
+    with st.expander("🔍 Ejecutar Diagnóstico Completo", expanded=False):
+        if st.button("Ejecutar Diagnóstico", type="primary"):
+            with st.spinner("Ejecutando diagnósticos..."):
+                # Capturar salida de diagnóstico
+                import io
+                import sys
+                
+                old_stdout = sys.stdout
+                sys.stdout = captured_output = io.StringIO()
+                
+                try:
+                    diagnose_ray_connection()
+                    output = captured_output.getvalue()
+                finally:
+                    sys.stdout = old_stdout
+                
+                st.text(output)
+
+def show_ray_dashboard():
+    st.header("🖥️ Monitoreo del Cluster Ray")
+    
+    # Configuración de conexión
+    with st.sidebar:
+        st.subheader("⚙️ Configuración Ray")
+        ray_url = st.text_input("URL de Ray Dashboard", value="http://ray-head:8265")
+        
+        if st.button("🔄 Reconectar"):
+            st.session_state.ray_monitor = RayMonitor(ray_url)
+            st.session_state.ray_connected = False
+    
+    # Inicializar monitor si no existe
+    if st.session_state.ray_monitor is None:
+        st.session_state.ray_monitor = create_ray_monitor(ray_url)
+    
+    monitor = st.session_state.ray_monitor
+    
+    # Verificar salud del cluster
+    health = monitor.health_check()
+    
+    # Mostrar estado de conexión
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        status_class = "status-good" if health["connection"] else "status-bad"
+        st.markdown(f'<p class="{status_class}">🔗 Conexión: {"✅" if health["connection"] else "❌"}</p>', 
+                   unsafe_allow_html=True)
+    
+    with col2:
+        status_class = "status-good" if health["api_accessible"] else "status-bad"
+        st.markdown(f'<p class="{status_class}">🔌 API: {"✅" if health["api_accessible"] else "❌"}</p>', 
+                   unsafe_allow_html=True)
+    
+    with col3:
+        status_class = "status-good" if health["nodes_available"] else "status-bad"
+        st.markdown(f'<p class="{status_class}">🖥️ Nodos: {"✅" if health["nodes_available"] else "❌"}</p>', 
+                   unsafe_allow_html=True)
+    
+    with col4:
+        status_class = "status-good" if health["overall_healthy"] else "status-bad"
+        st.markdown(f'<p class="{status_class}">🏥 Estado: {"Sano" if health["overall_healthy"] else "Problema"}</p>', 
+                   unsafe_allow_html=True)
+    
+    # Si no hay conexión, mostrar diagnósticos
+    if not health["overall_healthy"]:
+        st.error("❌ No se pudo conectar al cluster de Ray")
+        show_connection_diagnostics()
+        return
+    
+    # Dashboard principal
+    st.session_state.ray_connected = True
+    
+    # Resumen de recursos
+    resource_usage = monitor.get_resource_usage()
+    if resource_usage:
+        st.subheader("📊 Resumen de Recursos")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("🖥️ Nodos Totales", resource_usage.get("total_nodes", 0))
+        with col2:
+            st.metric("✅ Nodos Activos", resource_usage.get("active_nodes", 0))
+        with col3:
+            st.metric("🔧 CPU Cores", resource_usage.get("total_cpu_cores", 0))
+        with col4:
+            st.metric("💾 Memoria (GB)", resource_usage.get("total_memory_gb", 0))
+    
+    # Tabla de nodos
+    st.subheader("🖥️ Nodos del Cluster")
+    nodes_df = monitor.get_nodes_data()
+    
+    if not nodes_df.empty:
+        st.dataframe(nodes_df, use_container_width=True, hide_index=True)
+        
+        # Gráficos de recursos
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("💾 Distribución de Memoria")
+            fig = px.pie(nodes_df, values='Memory (GB)', names='Node ID', 
+                        title="Memoria por Nodo")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            st.subheader("🔧 Distribución de CPU")
+            fig = px.bar(nodes_df, x='Node ID', y='CPU Cores', 
+                        color='State', title="CPU Cores por Nodo")
+            st.plotly_chart(fig, use_container_width=True)
     else:
-        st.session_state.auto_refresh = False
+        st.warning("⚠️ No se pudieron obtener datos de los nodos")
+
+def show_predictions_interface():
+    """Interfaz para hacer predicciones"""
+    st.header("🔮 Interfaz de Predicciones")
     
-    if st.button("⚡ Sincronizar Ahora", key=get_unique_key("refresh_button")):
-        st.experimental_rerun()
+    # Verificar si Ray está conectado
+    if not st.session_state.ray_connected:
+        st.warning("⚠️ Necesitas conectar a Ray primero para hacer predicciones")
+        return
     
-    # Información adicional en sidebar
-    st.markdown("""
-    <div class="content-container" style="margin-top: 2rem;">
-        <h4 style="color: #252422;">📈 Estado General</h4>
-        <p style="color: #403D39; margin: 0;">Sistema operativo y monitoreando recursos</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("🚧 Implementar interfaz de predicciones aquí")
+    
+    # Ejemplo de interfaz
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📥 Entrada de Datos")
+        uploaded_file = st.file_uploader("Subir archivo CSV", type=['csv'])
+        
+        if uploaded_file is not None:
+            df = pd.read_csv(uploaded_file)
+            st.write("Vista previa de datos:")
+            st.dataframe(df.head())
+    
+    with col2:
+        st.subheader("⚙️ Configuración del Modelo")
+        model_type = st.selectbox("Tipo de Modelo", 
+                                 ["Linear Regression", "Random Forest", "XGBoost"])
+        batch_size = st.slider("Tamaño de lote", 1, 1000, 100)
+        
+        if st.button("🚀 Ejecutar Predicción"):
+            st.success("✅ Predicción ejecutada (simulada)")
 
-# Contenido de las pestañas con nuevos títulos
-with tabs[0]:
-    st.markdown('<h2 class="section-title">🎯 Monitor del Cluster</h2>', unsafe_allow_html=True)
-    renderizar_pestana_estado_cluster(cluster_status, system_metrics)
+def main():
+    st.title("🚀 Panel de Control de ML Distribuido")
+    st.markdown("---")
+    
+    # Tabs principales
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Modelos", "🖥️ Monitoreo Ray", "🔮 Predicciones", "🔧 Diagnósticos"])
+    
+    with tab1:
+        results = load_training_results()
+        render_metrics_comparison(results)
+    
+    with tab2:
+        show_ray_dashboard()
+    
+    with tab3:
+        show_predictions_interface()
+    
+    with tab4:
+        show_connection_diagnostics()
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("🕐 Última actualización: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-with tabs[1]:
-    st.markdown('<h2 class="section-title">🔬 Laboratorio ML</h2>', unsafe_allow_html=True)
-    renderizar_pestana_entrenamiento(cluster_status)
-
-with tabs[2]:
-    st.markdown('<h2 class="section-title">🛡️ Gateway de Modelos</h2>', unsafe_allow_html=True)
-    renderizar_pestana_api()
-
-with tabs[3]:
-    st.markdown('<h2 class="section-title">📊 Telemetría del Sistema</h2>', unsafe_allow_html=True)
-    renderizar_pestana_metricas_sistema(system_metrics)
-
-# Auto-refresh logic
-if st.session_state.auto_refresh:
-    st.rerun()
-    time.sleep(10)
+if __name__ == "__main__":
+    main()
