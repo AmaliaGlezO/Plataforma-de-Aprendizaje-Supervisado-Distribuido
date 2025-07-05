@@ -1,168 +1,23 @@
 services:
-  ray-head:
+  head:
     build: .
     container_name: ray-head
-    hostname: ray-head
+    command: >
+      ray start --head --port=6379 --dashboard-host=0.0.0.0
     ports:
-      - "8265:8265" 
-      - "10001:10001" 
-      - "6379:6379"  
+      - "8265:8265"   
     networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
-      - ENABLE_AUTO_FAILOVER=false
-    shm_size: 2gb
-    command: >
-      bash -c "
-      ray start --head 
-      --port=6379 
-      --dashboard-host=0.0.0.0 
-      --dashboard-port=8265 
-      --num-cpus=2 
-      --object-manager-port=8076 
-      --node-manager-port=8077 
-      --min-worker-port=10002 
-      --max-worker-port=19999 &&
-      echo 'Ray head node started successfully' &&
-      tail -f /dev/null
-      "
-    volumes:
-      - .:/app
-    restart: unless-stopped
+      - ray-net
 
-  ray-worker-1:
+  worker:
     build: .
-    container_name: ray-worker-1
-    hostname: ray-worker-1
     depends_on:
-      - ray-head
-    networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
-      - ENABLE_AUTO_FAILOVER=false
-    shm_size: 2gb
+      - head
     command: >
-      bash -c "
-      sleep 10 &&
-      ray start 
-      --address=ray-head:6379 
-      --num-cpus=2 
-      --object-manager-port=8076 
-      --node-manager-port=8077 
-      --min-worker-port=10002 
-      --max-worker-port=19999 && 
-      echo 'Ray worker 1 started successfully' &&
-      tail -f /dev/null
-      "
-    volumes:
-      - .:/app
-    restart: unless-stopped
-
-  ray-worker-2:
-    build: .
-    container_name: ray-worker-2
-    hostname: ray-worker-2
-    depends_on:
-      - ray-head
+      ray start --address=ray-head:6379
     networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
-      - ENABLE_AUTO_FAILOVER=false
-    shm_size: 2gb
-    command: >
-      bash -c "
-      sleep 15 &&
-      ray start 
-      --address=ray-head:6379 
-      --num-cpus=2 
-      --object-manager-port=8076 
-      --node-manager-port=8077 
-      --min-worker-port=10002 
-      --max-worker-port=19999 &&
-      echo 'Ray worker 2 started successfully' &&
-      tail -f /dev/null
-      "
-    volumes:
-      - .:/app
-    restart: unless-stopped
-
-
-  ml-api:
-    build: .
-    container_name: ml-api
-    hostname: ml-api
-    ports:
-      - "8000:8000" 
-    depends_on:
-      - ray-head
-    networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=2
-      - ENABLE_AUTO_FAILOVER=false
-    command: >
-      bash -c "
-      sleep 20 &&
-      echo 'Starting ML API...' &&
-      python api.py
-      "
-    volumes:
-      - .:/app
-      - ./training_results:/app/training_results
-      - ./models:/app/models
-    restart: unless-stopped
-
-  dashboard-app:
-    build: .
-    container_name: dashboard-app
-    hostname: dashboard-app
-    ports:
-      - "8501:8501"  
-    depends_on:
-      - ray-head
-      - ml-api
-    networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
-      - ENABLE_AUTO_FAILOVER=false
-      - CONTAINER_NAME=dashboard-app
-      - API_BASE_URL=http://ml-api:8000
-      - ENABLE_AUTO_FAILOVER=false
-    command: >
-      bash -c "
-      sleep 15 &&
-      echo 'Starting Streamlit application...' &&
-      streamlit run Dashboard.py --server.address=0.0.0.0 --server.port=8501"
-    volumes:
-      - .:/app
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
+      - ray-net
 
 networks:
-  ray-network:
+  ray-net:
     driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: ray-bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16
-          gateway: 172.25.0.1
