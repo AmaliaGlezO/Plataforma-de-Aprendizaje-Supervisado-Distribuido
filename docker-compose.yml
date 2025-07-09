@@ -23,63 +23,15 @@ services:
       --dashboard-host=0.0.0.0 
       --dashboard-port=8265 
       --num-cpus=2 
-      &&
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 &&
       echo 'Ray head node started successfully' &&
       tail -f /dev/null
       "
     restart: unless-stopped
-  ml-api:
-    build: .
-    container_name: ml-api
-    hostname: ml-api
-    ports:
-      - "8000:8000" 
-    depends_on:
-      - ray-head
-    networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=2
-      - ENABLE_AUTO_FAILOVER=false
-    command: >
-      bash -c "
-      sleep 10 &&
-      echo 'Starting ML API...' &&
-      python api.py && tail -f /dev/null
-      "
-    restart: unless-stopped
-  streamlit-app:
-    build: .
-    container_name: streamlit-app
-    hostname: streamlit-app
-    ports:
-      - "8501:8501"  
-    depends_on:
-      - ray-head
-      - ml-api
-    networks:
-      - ray-network
-    environment:
-      - RAY_HEAD_SERVICE_HOST=ray-head
-      - NODE_ROLE=worker
-      - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
-      - ENABLE_AUTO_FAILOVER=false
-      - CONTAINER_NAME=streamlit-app
-      - API_BASE_URL=http://ml-api:8000
-      - ENABLE_AUTO_FAILOVER=false
-    command: >
-      bash -c "
-      sleep 20 &&
-      echo 'Starting Streamlit application...' &&
-      streamlit run streamlit_app.py --server.address=0.0.0.0 --server.port=8501"
 
-    restart: unless-stopped
-  
-  
   ray-worker-1:
     build: .
     container_name: ray-worker-1
@@ -101,7 +53,10 @@ services:
       ray start 
       --address=ray-head:6379 
       --num-cpus=2 
-      && 
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 && 
       echo 'Ray worker 1 started successfully' &&
       tail -f /dev/null
       "
@@ -128,17 +83,22 @@ services:
       ray start 
       --address=ray-head:6379 
       --num-cpus=2 
-      &&
+      --object-manager-port=8076 
+      --node-manager-port=8077 
+      --min-worker-port=10002 
+      --max-worker-port=19999 &&
       echo 'Ray worker 2 started successfully' &&
       tail -f /dev/null
       "
-
     restart: unless-stopped
 
-  ray-worker-3:
+
+  ml-api:
     build: .
-    container_name: ray-worker-3
-    hostname: ray-worker-3
+    container_name: ml-api
+    hostname: ml-api
+    ports:
+      - "8000:8000" 
     depends_on:
       - ray-head
     networks:
@@ -147,19 +107,41 @@ services:
       - RAY_HEAD_SERVICE_HOST=ray-head
       - NODE_ROLE=worker
       - LEADER_NODE=false
-      - FAILOVER_PRIORITY=3
+      - FAILOVER_PRIORITY=2
       - ENABLE_AUTO_FAILOVER=false
-    shm_size: 2gb
     command: >
       bash -c "
       sleep 20 &&
-      ray start 
-      --address=ray-head:6379 
-      --num-cpus=2 
-      &&
-      echo 'Ray worker 3 started successfully' &&
-      tail -f /dev/null
+      echo 'Starting ML API...' &&
+      python api.py
       "
+    restart: unless-stopped
+
+  dashboard-app:
+    build: .
+    container_name: dashboard-app
+    hostname: dashboard-app
+    ports:
+      - "8501:8501"  
+    depends_on:
+      - ray-head
+      - ml-api
+    networks:
+      - ray-network
+    environment:
+      - RAY_HEAD_SERVICE_HOST=ray-head
+      - NODE_ROLE=worker
+      - LEADER_NODE=false
+      - FAILOVER_PRIORITY=3
+      - ENABLE_AUTO_FAILOVER=false
+      - CONTAINER_NAME=dashboard-app
+      - API_BASE_URL=http://ml-api:8000
+      - ENABLE_AUTO_FAILOVER=false
+    command: >
+      bash -c "
+      sleep 15 &&
+      echo 'Starting Streamlit application...' &&
+      streamlit run Dashboard.py --server.address=0.0.0.0 --server.port=8501"
     restart: unless-stopped
 
 networks:
