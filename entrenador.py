@@ -143,6 +143,7 @@ class ModeloStore:
     def obtener_datos_referencia(self, nombre):
         """Obtiene referencias de datos del object store"""
         return self.datos_referencia.get(nombre)
+    
 
 @ray.remote(max_retries=3, retry_exceptions=True)
 def train_model_remote(model, model_name, X_train_ref, y_train_ref, X_test_ref, y_test_ref, task_type='regression', node_id=None):

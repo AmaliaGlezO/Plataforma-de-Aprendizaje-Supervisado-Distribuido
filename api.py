@@ -701,5 +701,158 @@ async def get_training_results():
         logger.error(f"❌ Error leyendo resultados: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== NEW ACTOR-BASED ENDPOINTS ====================
+
+@app.get("/actor/models")
+async def get_actor_models():
+    """List all models stored in the global ModeloStore actor"""
+    try:
+        if not ray.is_initialized():
+            raise HTTPException(status_code=503, detail="Ray cluster not initialized")
+        
+        modelo_store = ray.get_actor("ModeloStore")
+        models = await modelo_store.listar_modelos.remote()
+        return {
+            "status": "success",
+            "models": models,
+            "count": len(models)
+        }
+    except Exception as e:
+        logger.error(f"Error getting actor models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/actor/models/{model_name}")
+async def get_actor_model_details(model_name: str):
+    """Get details and metrics for a specific model from the actor"""
+    try:
+        if not ray.is_initialized():
+            raise HTTPException(status_code=503, detail="Ray cluster not initialized")
+        
+        modelo_store = ray.get_actor("ModeloStore")
+        model = await modelo_store.obtener_modelo.remote(model_name)
+        metrics = await modelo_store.obtener_metricas.remote(model_name)
+        
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model {model_name} not found in actor storage")
+        
+        return {
+            "status": "success",
+            "model_name": model_name,
+            "metrics": metrics,
+            "model_type": str(type(model)),
+            "has_predict_proba": hasattr(model, 'predict_proba')
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting actor model details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/actor/models/{model_name}")
+async def delete_actor_model(model_name: str):
+    """Delete a model from the global ModeloStore actor"""
+    try:
+        if not ray.is_initialized():
+            raise HTTPException(status_code=503, detail="Ray cluster not initialized")
+        
+        # First check if model exists in actor
+        modelo_store = ray.get_actor("ModeloStore")
+        model = await modelo_store.obtener_modelo.remote(model_name)
+        
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model {model_name} not found in actor storage")
+        
+        # Also delete from disk if exists
+        model_path = find_model_file(model_name)
+        if model_path:
+            try:
+                os.remove(model_path)
+            except Exception as e:
+                logger.warning(f"Could not delete model file {model_path}: {e}")
+        
+        # Clean from actor by storing None
+        await modelo_store.guardar_modelo.remote(model_name, None, None)
+        
+        return {
+            "status": "success",
+            "message": f"Model {model_name} removed from actor storage",
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting actor model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/actor/stats")
+async def get_actor_stats():
+    """Get statistics from the global ModeloStore actor"""
+    try:
+        if not ray.is_initialized():
+            raise HTTPException(status_code=503, detail="Ray cluster not initialized")
+        
+        modelo_store = ray.get_actor("ModeloStore")
+        stats = await modelo_store.obtener_estadisticas.remote()
+        
+        return {
+            "status": "success",
+            "stats": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting actor stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/actor/predict")
+async def actor_predict(request: PredictionRequest):
+    """Make predictions using models stored in the actor"""
+    start_time = time.time()
+    
+    try:
+        if not ray.is_initialized():
+            raise HTTPException(status_code=503, detail="Ray cluster not initialized")
+        
+        modelo_store = ray.get_actor("ModeloStore")
+        model = await modelo_store.obtener_modelo.remote(request.model_name)
+        
+        if not model:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model {request.model_name} not found in actor storage"
+            )
+        
+        # Convert features to numpy array
+        features_array = np.array(request.features)
+        
+        # Make prediction
+        predictions = model.predict(features_array).tolist()
+        
+        # Get probabilities if requested and available
+        probabilities = None
+        if request.return_probabilities and hasattr(model, 'predict_proba'):
+            probabilities = model.predict_proba(features_array).tolist()
+        
+        prediction_time = time.time() - start_time
+        
+        # Update inference stats
+        update_inference_stats(request.model_name, prediction_time, True)
+        
+        return PredictionResponse(
+            model_name=request.model_name,
+            predictions=predictions,
+            probabilities=probabilities,
+            feature_count=len(request.features[0]) if request.features else 0,
+            prediction_time=prediction_time,
+            timestamp=datetime.now().isoformat()
+        )
+        
+    except HTTPException:
+        update_inference_stats(request.model_name, 0, False)
+        raise
+    except Exception as e:
+        update_inference_stats(request.model_name, 0, False)
+        logger.error(f"Error in actor prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
