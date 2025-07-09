@@ -81,15 +81,82 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
+# Actor global para almacenar modelos y métricas
+@ray.remote(name="ModeloStore", lifetime="detached", max_restarts=3, max_task_retries=5)
+class ModeloStore:
+    def __init__(self):
+        self.modelos = {}  # model_name -> model
+        self.metricas = {}  # model_name -> métricas
+        self.datos_referencia = {}  # Para almacenar referencias de datos
+        self.historial_entrenamientos = []  # Historial de entrenamientos
+        
+    def guardar_modelo(self, nombre, modelo, metricas):
+        """Guarda un modelo entrenado y sus métricas"""
+        self.modelos[nombre] = modelo
+        self.metricas[nombre] = metricas
+        
+        # Agregar al historial
+        self.historial_entrenamientos.append({
+            'nombre': nombre,
+            'timestamp': datetime.now().isoformat(),
+            'metricas': metricas
+        })
+        
+        return f"Modelo {nombre} guardado exitosamente"
+    
+    def obtener_modelo(self, nombre):
+        """Obtiene un modelo específico"""
+        return self.modelos.get(nombre)
+    
+    def obtener_metricas(self, nombre):
+        """Obtiene métricas de un modelo específico"""
+        return self.metricas.get(nombre)
+    
+    def listar_modelos(self):
+        """Lista todos los modelos disponibles"""
+        return list(self.modelos.keys())
+    
+    def listar_metricas(self):
+        """Lista todas las métricas disponibles"""
+        return self.metricas
+    
+    def obtener_estadisticas(self):
+        """Obtiene estadísticas generales del almacén"""
+        return {
+            'total_modelos': len(self.modelos),
+            'total_entrenamientos': len(self.historial_entrenamientos),
+            'modelos_disponibles': list(self.modelos.keys())
+        }
+    
+    def limpiar_modelos(self):
+        """Limpia todos los modelos almacenados"""
+        self.modelos.clear()
+        self.metricas.clear()
+        self.historial_entrenamientos.clear()
+        return "Almacén de modelos limpiado"
+    
+    def guardar_datos_referencia(self, nombre, datos_ref):
+        """Guarda referencias de datos en el object store"""
+        self.datos_referencia[nombre] = datos_ref
+        return f"Datos {nombre} guardados en object store"
+    
+    def obtener_datos_referencia(self, nombre):
+        """Obtiene referencias de datos del object store"""
+        return self.datos_referencia.get(nombre)
 
 @ray.remote(max_retries=3, retry_exceptions=True)
-def train_model_remote(model, model_name, X_train, y_train, X_test, y_test, task_type='regression', node_id=None):
-    """Versión robusta con manejo de errores mejorado para regresión y clasificación"""
+def train_model_remote(model, model_name, X_train_ref, y_train_ref, X_test_ref, y_test_ref, task_type='regression', node_id=None):
+    """Versión robusta con manejo de errores mejorado para regresión y clasificación usando referencias"""
     start_time = time.time()
     
     try:
         logger.info(f"Iniciando {model_name} ({task_type}) en nodo {node_id}")
+        
+        # Obtener datos del object store
+        X_train = ray.get(X_train_ref)
+        y_train = ray.get(y_train_ref)
+        X_test = ray.get(X_test_ref)
+        y_test = ray.get(y_test_ref)
         
         # Validación de datos de entrada
         if np.isnan(X_train).any() or np.isnan(X_test).any():
@@ -112,10 +179,10 @@ def train_model_remote(model, model_name, X_train, y_train, X_test, y_test, task
             r2 = r2_score(y_test, y_pred)
             
             metrics = {
-                'mse': mse,
-                'mae': mae,
-                'r2': r2,
-                'rmse': np.sqrt(mse)
+                'mse': float(mse),  # Convertir a float para serialización JSON
+                'mae': float(mae),
+                'r2': float(r2),
+                'rmse': float(np.sqrt(mse))
             }
         else:  # classification
             accuracy = accuracy_score(y_test, y_pred)
@@ -124,11 +191,16 @@ def train_model_remote(model, model_name, X_train, y_train, X_test, y_test, task
             f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
             
             metrics = {
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
-                'f1_score': f1
+                'accuracy': float(accuracy),
+                'precision': float(precision),
+                'recall': float(recall),
+                'f1_score': float(f1)
             }
+        
+        # Limpiar métricas de valores problemáticos (NaN, Inf)
+        for key, value in metrics.items():
+            if np.isnan(value) or np.isinf(value):
+                metrics[key] = 0.0
         
         training_time = time.time() - start_time
         logger.info(f"{model_name} completado en {training_time:.2f}s")
@@ -137,7 +209,8 @@ def train_model_remote(model, model_name, X_train, y_train, X_test, y_test, task
             'model_name': model_name,
             'model': pipeline,
             'task_type': task_type,
-            'training_time': training_time,
+            'training_time': float(training_time),
+            'node_id': node_id,
             'status': 'success'
         }
         result.update(metrics)
@@ -151,18 +224,20 @@ def train_model_remote(model, model_name, X_train, y_train, X_test, y_test, task
             'task_type': task_type,
             'status': 'failed',
             'error': str(e),
-            'node_id': node_id
+            'node_id': node_id,
+            'training_time': 0.0
         }
 
 class EntrenamientoDistribuido:
     def __init__(self, head_address=None, enable_fault_tolerance=True):
-        """Inicializa el entrenador distribuido de ML con tolerancia a fallos"""
+        """Inicializa el entrenador distribuido de ML con tolerancia a fallos y actor global"""
         self.enable_fault_tolerance = enable_fault_tolerance
         self.results = {}
         self.trained_models = {}
         self.failed_tasks = []
         self.cluster_nodes = []
         
+        # Inicializar Ray si no está inicializado
         if not ray.is_initialized():
             ray_config = {
                 "num_cpus": None,  
@@ -179,7 +254,25 @@ class EntrenamientoDistribuido:
             
             ray.init(**ray_config)
         
+        # Inicializar o conectar al actor global ModeloStore
+        self._init_modelo_store()
         self._update_cluster_info()
+    
+    def _init_modelo_store(self):
+        """Inicializa o conecta al actor global ModeloStore"""
+        try:
+            # Intentar conectar al actor existente
+            self.modelo_store = ray.get_actor("ModeloStore")
+            logger.info("Actor global ModeloStore conectado exitosamente")
+        except ValueError:
+            # Si no existe, crear uno nuevo
+            logger.info("Actor ModeloStore no existe. Creándolo nuevo...")
+            self.modelo_store = ModeloStore.options(
+                name="ModeloStore", 
+                lifetime="detached", 
+                get_if_exists=True
+            ).remote()
+            logger.info("Actor global ModeloStore creado exitosamente")
         
     def _update_cluster_info(self):
         """Actualiza información del cluster para autodescubrimiento"""
@@ -188,7 +281,7 @@ class EntrenamientoDistribuido:
             alive_nodes = [node for node in self.cluster_nodes if node.get('Alive', False)]
             logger.info(f"Cluster autodescubierto: {len(alive_nodes)} nodos vivos de {len(self.cluster_nodes)} totales")
         except Exception as e:
-            logger.warning(f"Error actualizando información del cluster: {e}") 
+            logger.warning(f"Error actualizando información del cluster: {e}")
 
     def load_energy_data(self, filepath="data/datos_electricos.csv"):
         """Carga y prepara los datos con manejo robusto de NaN y sparse data"""
@@ -390,7 +483,7 @@ class EntrenamientoDistribuido:
         return models
            
     def train_models_distributed(self, task_type='both', selected_models=None, test_size=0.3):
-        """Entrena múltiples modelos de forma distribuida"""
+        """Entrena múltiples modelos de forma distribuida usando Ray actors"""
         logger.info(f"Iniciando entrenamiento distribuido - Tipo de tarea: {task_type}")
         
         self._update_cluster_info()
@@ -409,6 +502,22 @@ class EntrenamientoDistribuido:
             
             logger.info(f"Datos de regresión divididos: {X_train.shape[0]} entrenamiento, {X_test.shape[0]} prueba")
             
+            # Poner los datos en el object store de Ray
+            X_train_ref = ray.put(X_train)
+            X_test_ref = ray.put(X_test)
+            y_train_ref = ray.put(y_train)
+            y_test_ref = ray.put(y_test)
+            
+            # Guardar referencias en el actor para uso posterior
+            ray.get(self.modelo_store.guardar_datos_referencia.remote(
+                "regression_data", {
+                    'X_train': X_train_ref,
+                    'X_test': X_test_ref,
+                    'y_train': y_train_ref,
+                    'y_test': y_test_ref
+                }
+            ))
+            
             regression_models = self.get_regression_models()
             models_to_use = selected_models if selected_models else list(regression_models.keys())
             
@@ -418,7 +527,7 @@ class EntrenamientoDistribuido:
                     node_id = f"node_{i % max(len(self.cluster_nodes), 1)}"
                     
                     task = train_model_remote.remote(
-                        model, f"{model_name}_REG", X_train, y_train, X_test, y_test, 'regression', node_id
+                        model, f"{model_name}_REG", X_train_ref, y_train_ref, X_test_ref, y_test_ref, 'regression', node_id
                     )
                     remote_tasks.append(task)
                     task_info[task] = {'model_name': f"{model_name}_REG", 'node_id': node_id}
@@ -431,6 +540,22 @@ class EntrenamientoDistribuido:
             
             logger.info(f"Datos de clasificación divididos: {X_train.shape[0]} entrenamiento, {X_test.shape[0]} prueba")
             
+            # Poner los datos en el object store de Ray
+            X_train_ref = ray.put(X_train)
+            X_test_ref = ray.put(X_test)
+            y_train_ref = ray.put(y_train)
+            y_test_ref = ray.put(y_test)
+            
+            # Guardar referencias en el actor para uso posterior
+            ray.get(self.modelo_store.guardar_datos_referencia.remote(
+                "classification_data", {
+                    'X_train': X_train_ref,
+                    'X_test': X_test_ref,
+                    'y_train': y_train_ref,
+                    'y_test': y_test_ref
+                }
+            ))
+            
             classification_models = self.get_classification_models()
             models_to_use = selected_models if selected_models else list(classification_models.keys())
             
@@ -440,7 +565,7 @@ class EntrenamientoDistribuido:
                     node_id = f"node_{i % max(len(self.cluster_nodes), 1)}"
                     
                     task = train_model_remote.remote(
-                        model, f"{model_name}_CLF", X_train, y_train, X_test, y_test, 'classification', node_id
+                        model, f"{model_name}_CLF", X_train_ref, y_train_ref, X_test_ref, y_test_ref, 'classification', node_id
                     )
                     remote_tasks.append(task)
                     task_info[task] = {'model_name': f"{model_name}_CLF", 'node_id': node_id}
@@ -456,6 +581,17 @@ class EntrenamientoDistribuido:
             for result in completed_results:
                 if result.get('status') == 'success':
                     results.append(result)
+                    
+                    # Guardar en el actor global
+                    metricas_limpias = {
+                        k: v for k, v in result.items()
+                        if k in ['mse', 'mae', 'r2', 'rmse', 'accuracy', 'precision', 'recall', 'f1_score', 'training_time', 'task_type']
+                    }
+                    
+                    ray.get(self.modelo_store.guardar_modelo.remote(
+                        result['model_name'], result['model'], metricas_limpias
+                    ))
+                    
                 else:
                     failed_results.append(result)
                     
@@ -468,6 +604,17 @@ class EntrenamientoDistribuido:
                     result = ray.get(task)
                     if result.get('status') == 'success':
                         results.append(result)
+                        
+                        # Guardar en el actor global
+                        metricas_limpias = {
+                            k: v for k, v in result.items()
+                            if k in ['mse', 'mae', 'r2', 'rmse', 'accuracy', 'precision', 'recall', 'f1_score', 'training_time', 'task_type']
+                        }
+                        
+                        ray.get(self.modelo_store.guardar_modelo.remote(
+                            result['model_name'], result['model'], metricas_limpias
+                        ))
+                        
                     else:
                         failed_results.append(result)
                 except Exception as e:
@@ -478,7 +625,7 @@ class EntrenamientoDistribuido:
                         'node_id': task_info[task]['node_id']
                     })
         
-        # Almacenar resultados
+        # Almacenar resultados localmente también
         for result in results:
             self.results[result['model_name']] = result
             self.trained_models[result['model_name']] = result['model']
@@ -495,105 +642,53 @@ class EntrenamientoDistribuido:
         total_tasks = len(self.results) + len(self.failed_tasks)
         successful_tasks = len(self.results)
         failed_tasks = len(self.failed_tasks)
-        
-        logger.info(f"Resultados - Exitosos: {successful_tasks}/{total_tasks}, Fallos: {failed_tasks}")
-        
+
+        print(f"Resultados - Exitosos: {successful_tasks}/{total_tasks}, Fallos: {failed_tasks}")
+
         if self.results:
-            # Separar por tipo de tarea
             regression_results = {k: v for k, v in self.results.items() if v.get('task_type') == 'regression'}
             classification_results = {k: v for k, v in self.results.items() if v.get('task_type') == 'classification'}
-            
-            # Mostrar resultados de regresión
+
             if regression_results:
-                logger.info("\n" + "="*100)
-                logger.info("RESULTADOS DE REGRESIÓN")
-                logger.info("="*100)
+                print("\n" + "="*80)
+                print("RESULTADOS DE REGRESIÓN")
+                print("="*80)
                 sorted_reg = sorted(regression_results.items(), key=lambda x: x[1]['mse'])
-                logger.info(f"{'Modelo':30} | {'MSE':<12} | {'MAE':<12} | {'R²':<12} | {'RMSE':<12} | {'Tiempo':<10}")
-                logger.info("-"*100)
+                print(f"{'Modelo':30} | {'MSE':<10} | {'MAE':<10} | {'R²':<10} | {'RMSE':<10} | {'Tiempo':<8}")
+                print("-"*80)
                 for model_name, result in sorted_reg:
-                    logger.info(f"{model_name:30} | {result['mse']:12.4f} | {result['mae']:12.4f} | "
-                              f"{result['r2']:12.4f} | {result['rmse']:12.4f} | {result['training_time']:10.2f}s")
-            
-            # Mostrar resultados de clasificación
+                    print(f"{model_name:30} | {result['mse']:<10.4f} | {result['mae']:<10.4f} | {result['r2']:<10.4f} | {result['rmse']:<10.4f} | {result['training_time']:<8.2f}s")
+
             if classification_results:
-                logger.info("\n" + "="*100)
-                logger.info("RESULTADOS DE CLASIFICACIÓN")
-                logger.info("="*100)
+                print("\n" + "="*80)
+                print("RESULTADOS DE CLASIFICACIÓN")
+                print("="*80)
                 sorted_clf = sorted(classification_results.items(), key=lambda x: x[1]['accuracy'], reverse=True)
-                logger.info(f"{'Modelo':30} | {'Accuracy':<12} | {'Precision':<12} | {'Recall':<12} | {'F1-Score':<12} | {'Tiempo':<10}")
-                logger.info("-"*100)
+                print(f"{'Modelo':30} | {'Accuracy':<10} | {'Precision':<10} | {'Recall':<10} | {'F1-Score':<10} | {'Tiempo':<8}")
+                print("-"*80)
                 for model_name, result in sorted_clf:
-                    logger.info(f"{model_name:30} | {result['accuracy']:12.4f} | {result['precision']:12.4f} | "
-                              f"{result['recall']:12.4f} | {result['f1_score']:12.4f} | {result['training_time']:10.2f}s")
-    
-    def save_results(self, filename="training_results/expanded_training_results.json"):
-        """Guarda los resultados en un archivo JSON"""
+                    print(f"{model_name:30} | {result['accuracy']:<10.4f} | {result['precision']:<10.4f} | {result['recall']:<10.4f} | {result['f1_score']:<10.4f} | {result['training_time']:<8.2f}s")
+
+    def save_results_json(self, output_path="resultados_entrenamiento.json"):
+        import json
+        with open(output_path, 'w') as f:
+            json.dump({k: {kk: vv for kk, vv in v.items() if kk != 'model'} for k, v in self.results.items()}, f, indent=4)
+        print(f"Resultados guardados en {output_path}")
+
+    def save_models_pickle(self, output_dir="modelos_guardados"):
         import os
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w') as f:
-            json.dump(
-                {k: {kk: vv for kk, vv in v.items() if kk != 'model'} for k, v in self.results.items()},
-                f,
-                indent=2
-            )
-        logger.info(f"Resultados guardados en: {filename}")
-
-    def save_models(self, directory="models_expanded"):
-        """Guarda los modelos entrenados"""
-        os.makedirs(directory, exist_ok=True)
-        saved_count = 0
-        
+        os.makedirs(output_dir, exist_ok=True)
         for model_name, model in self.trained_models.items():
-            try:
-                with open(f"{directory}/{model_name}.pkl", 'wb') as f:
-                    pickle.dump(model, f)
-                saved_count += 1
-            except Exception as e:
-                logger.error(f"Error guardando {model_name}: {e}")
-        
-        logger.info(f"Modelos guardados: {saved_count}/{len(self.trained_models)}")
-        return saved_count
+            filepath = os.path.join(output_dir, f"{model_name}.pkl")
+            with open(filepath, 'wb') as f:
+                pickle.dump(model, f)
+        print(f"Modelos guardados en {output_dir}")
 
-    def print_cluster_info(self):
-        """Imprime información sobre los nodos del clúster"""
-        self._update_cluster_info()
-        logger.info(f"Nodos en el clúster: {len(self.cluster_nodes)}")
-        for node in self.cluster_nodes:
-            logger.info(f"ID: {node['NodeID']}, Alive: {node['Alive']}, IP: {node['NodeManagerAddress']}")
+    def listar_modelos_guardados(self):
+        return ray.get(self.modelo_store.listar_modelos.remote())
 
-def main():
-    """Función principal para ejecutar el entrenamiento expandido"""
-    logger.info("Iniciando entrenador distribuido expandido")
+    def obtener_metricas_modelo(self, nombre_modelo):
+        return ray.get(self.modelo_store.obtener_metricas.remote(nombre_modelo))
 
-    trainer = EntrenamientoDistribuido()
-    
-    # Entrenar todos los modelos (regresión y clasificación)
-    results = trainer.train_models_distributed(task_type='both')
-    
-    # Guardar resultados
-    trainer.save_results()
-    trainer.save_models()
-    
-    if results:
-        # Mejores modelos por categoría
-        regression_results = {k: v for k, v in results.items() if v.get('task_type') == 'regression'}
-        classification_results = {k: v for k, v in results.items() if v.get('task_type') == 'classification'}
-        
-        if regression_results:
-            best_reg = min(regression_results.items(), key=lambda x: x[1]['mse'])
-            logger.info(f"\n🏆 MEJOR MODELO DE REGRESIÓN: {best_reg[0]}")
-            logger.info(f"   - MSE: {best_reg[1]['mse']:.4f}")
-            logger.info(f"   - R²: {best_reg[1]['r2']:.4f}")
-        
-        if classification_results:
-            best_clf = max(classification_results.items(), key=lambda x: x[1]['accuracy'])
-            logger.info(f"\n🏆 MEJOR MODELO DE CLASIFICACIÓN: {best_clf[0]}")
-            logger.info(f"   - Accuracy: {best_clf[1]['accuracy']:.4f}")
-            logger.info(f"   - F1-Score: {best_clf[1]['f1_score']:.4f}")
-
-    logger.info(f"\n✅ Entrenamiento expandido completado!")
-    logger.info(f"Total de modelos entrenados: {len(results)}")
-
-if __name__ == "__main__":
-    main()
+    def limpiar_almacen_modelos(self):
+        return ray.get(self.modelo_store.limpiar_modelos.remote())
