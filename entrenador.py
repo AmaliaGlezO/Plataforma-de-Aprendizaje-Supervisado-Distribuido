@@ -154,10 +154,10 @@ def train_model_remote(model, model_name, X_train_ref, y_train_ref, X_test_ref, 
         logger.info(f"Iniciando {model_name} ({task_type}) en nodo {node_id}")
         
         # Obtener datos del object store
-        X_train = ray.get(X_train_ref)
-        y_train = ray.get(y_train_ref)
-        X_test = ray.get(X_test_ref)
-        y_test = ray.get(y_test_ref)
+        X_train = X_train_ref
+        y_train = y_train_ref
+        X_test = X_test_ref
+        y_test = y_test_ref
         
         # Validación de datos de entrada
         if np.isnan(X_train).any() or np.isnan(X_test).any():

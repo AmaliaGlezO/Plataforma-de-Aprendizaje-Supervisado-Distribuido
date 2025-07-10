@@ -38,6 +38,7 @@ def make_post_request(endpoint, data=None, files=None):
                 json=data,
                 headers=headers
             )
+        st.error(response)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
