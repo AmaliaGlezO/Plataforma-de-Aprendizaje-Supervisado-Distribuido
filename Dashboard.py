@@ -189,16 +189,24 @@ def main():
             if search_results:
                 st.dataframe(pd.DataFrame(search_results))
     
+
+
     # Training tab
     with tab2:
         st.header("Model Training")
         
         with st.form("training_form"):
             st.write("Configure training parameters")
+
+            uploaded_file = st.file_uploader(
+            "Upload your dataset (CSV)",
+            type=["csv"],
+            key="training_dataset"
+        )
             
             task_type = st.selectbox(
                 "Task Type",
-                ["regression", "classification", "both"],
+                ["regression", "classification"],
                 index=2
             )
             
