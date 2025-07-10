@@ -206,7 +206,7 @@ def main():
             
             task_type = st.selectbox(
                 "Task Type",
-                ["regression", "classification"],
+                ["regression", "classification", "both"],
                 index=2
             )
             
