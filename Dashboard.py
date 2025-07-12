@@ -181,27 +181,84 @@ def main():
                         else:
                             st.error(f"Error deleting model: {result.text}")
         
-        # Model search
-        st.subheader("Search Models")
-        search_query = st.text_input("Enter model name or algorithm")
-        if search_query:
-            search_results = make_get_request(f"/models/search/{search_query}")
-            if search_results:
-                st.dataframe(pd.DataFrame(search_results))
+        # Nueva sección de entrenamiento en el mismo tab
+        st.header("Entrenamiento de Modelos")
+        uploaded_file = st.file_uploader("Sube tu dataset CSV", type=["csv"])
+        if uploaded_file is not None:
+            df = pd.read_csv(uploaded_file)
+            st.write("Dataset cargado:")
+            st.dataframe(df)
+
+            # Selección de la columna objetivo
+            target_column = st.selectbox("Selecciona la columna objetivo:", df.columns)
+
+            # Eliminar valores nulos
+            df = df.dropna(subset=[target_column])
+            st.write("Valores nulos eliminados. Dataset limpio:")
+            st.dataframe(df)
+
+            # Obtener modelos disponibles
+            algorithms = make_get_request("/algorithms")
+            if algorithms:
+                all_algorithms = []
+                if algorithms['algorithms']['regression']:
+                    all_algorithms.extend([
+                        f"Regression: {name}"
+                        for name in algorithms['algorithms']['regression']
+                    ])
+                if algorithms['algorithms']['classification']:
+                    all_algorithms.extend([
+                        f"Classification: {name}"
+                        for name in algorithms['algorithms']['classification']
+                    ])
+                
+                selected_algorithms = st.multiselect(
+                    "Selecciona los modelos para entrenar (deja vacío para todos)",
+                    all_algorithms
+                )
+                
+                # Determinar el tipo de tarea
+                task_type = "both"  # Por defecto
+                if selected_algorithms:
+                    task_types = set()
+                    for alg in selected_algorithms:
+                        if "Regression" in alg:
+                            task_types.add("regression")
+                        elif "Classification" in alg:
+                            task_types.add("classification")
+                    task_type = "both" if len(task_types) > 1 else task_types.pop()
+
+            # Botón de envío para iniciar el entrenamiento
+            submit_train = st.button("Iniciar Entrenamiento")
+            if submit_train:
+                X = df.drop(columns=[target_column])
+                y = df[target_column]
+                # Verificar si hay valores NaN en X y y
+                if X.isnull().values.any() or y.isnull().values.any():
+                    st.error("Los datos de entrada contienen valores NaN. Por favor, limpia el dataset antes de continuar.")
+                else:
+                    training_request = {
+                        "task_type": task_type,
+                        "selected_models": selected_algorithms,
+                        "dataset_name": uploaded_file.name,
+                        "X": X.to_dict(orient='records'),
+                        "y": y.tolist()
+                    }
+                    response = make_post_request("/train", training_request)
+                    if response:
+                        st.success("Entrenamiento iniciado!")
+                        st.json(response)
     
-    # Training tab
     with tab2:
         st.header("Model Training")
         
         with st.form("training_form"):
             st.write("Configure training parameters")
-            
             task_type = st.selectbox(
                 "Task Type",
                 ["regression", "classification", "both"],
                 index=2
             )
-            
             test_size = st.slider(
                 "Test Size Ratio",
                 min_value=0.1,
@@ -209,7 +266,6 @@ def main():
                 value=0.3,
                 step=0.05
             )
-            
             # Get available algorithms
             algorithms = make_get_request("/algorithms")
             if algorithms:
@@ -236,19 +292,24 @@ def main():
                     for alg in selected_algorithms
                 ] if selected_algorithms else None
             
+            # Botón de envío
             submit_train = st.form_submit_button("Start Training")
             
             if submit_train:
-                with st.spinner("Starting training job..."):
+                if uploaded_file is not None:
+                    X = df.drop(columns=[target_column])
+                    y = df[target_column]
                     training_request = {
                         "task_type": task_type,
                         "test_size": test_size,
-                        "selected_models": selected_models
+                        "selected_models": selected_models,
+                        "dataset_name": uploaded_file.name,
+                        "X": X.to_dict(orient='records'),
+                        "y": y.tolist()
                     }
-                    
                     response = make_post_request("/train", training_request)
                     if response:
-                        st.success("Training started in background!")
+                        st.success("Entrenamiento iniciado!")
                         st.json(response)
         
         # Training results

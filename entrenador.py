@@ -483,22 +483,28 @@ class EntrenamientoDistribuido:
         
         return models
            
-    def train_models_distributed(self, task_type='both', selected_models=None, test_size=0.3):
+    def train_models_distributed(self, X, y, task_type='both', selected_models=None, test_size=0.3):
         """Entrena múltiples modelos de forma distribuida usando Ray actors"""
         logger.info(f"Iniciando entrenamiento distribuido - Tipo de tarea: {task_type}")
-        
+
+        # Identificar columnas categóricas
+        categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
+        logger.info(f"Columnas categóricas identificadas: {categorical_cols}")
+
+        # Convertir columnas categóricas a variables dummy
+        if categorical_cols:
+            X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
+            logger.info(f"Datos transformados a variables dummy. Nueva forma de X: {X.shape}")
+
         self._update_cluster_info()
 
-        # Cargar y preparar datos
-        X, y_reg, y_clf, feature_names = self.load_energy_data()
-        
         remote_tasks = []
         task_info = {}
-        
+
         # Entrenar modelos de regresión
         if task_type in ['regression', 'both']:
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y_reg, test_size=test_size, random_state=42
+                X, y, test_size=test_size, random_state=42
             )
             
             logger.info(f"Datos de regresión divididos: {X_train.shape[0]} entrenamiento, {X_test.shape[0]} prueba")
@@ -532,11 +538,11 @@ class EntrenamientoDistribuido:
                     )
                     remote_tasks.append(task)
                     task_info[task] = {'model_name': f"{model_name}_REG", 'node_id': node_id}
-        
+
         # Entrenar modelos de clasificación
         if task_type in ['classification', 'both']:
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y_clf, test_size=test_size, random_state=42
+                X, y, test_size=test_size, random_state=42
             )
             
             logger.info(f"Datos de clasificación divididos: {X_train.shape[0]} entrenamiento, {X_test.shape[0]} prueba")

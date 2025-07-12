@@ -56,10 +56,13 @@ class BatchPredictionRequest(BaseModel):
     return_probabilities: bool = Field(False, description="Devolver probabilidades para clasificación")
 
 class TrainingRequest(BaseModel):
-    model_config = ConfigDict(protected_namespaces=())
-    dataset_name: str = Field("datos_electricos.csv", description="Nombre del dataset")
+    
     task_type: str = Field("both", description="Tipo de tarea: 'regression', 'classification', 'both'")
     selected_models: Optional[List[str]] = Field(None, example=["RandomForest", "Ridge"])
+    dataset_name: str = Field("datos_electricos.csv", description="Nombre del dataset")
+  
+    X:Dict = Field(...,description='datos de entrenamiento')
+    y:Dict = Field(...,description='target')
     test_size: float = Field(0.3, ge=0.1, le=0.5, description="Proporción para test")
 
 class PredictionResponse(BaseModel):
@@ -305,45 +308,32 @@ async def health_check():
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 @app.post("/train")
-async def train_models(request: TrainingRequest, background_tasks: BackgroundTasks):
+async def train_models(request: TrainingRequest):
     """Inicia el entrenamiento distribuido de modelos"""
-    def train_task():
-        try:
-            trainer = get_trainer()
-            logger.info(f"Iniciando entrenamiento:")
-            
-            results = trainer.train_models_distributed(
-                task_type=request.task_type,
-                selected_models=request.selected_models,
-                test_size=request.test_size
-            )
-            
-            if results:
-                # Guardar modelos en el directorio correcto
-                #trainer.save_models(MODELS_DIR)
-                # Guardar resultados
-                results_file = os.path.join(TRAINING_RESULTS_DIR, "train_results.json")
-                #trainer.save_results(results_file)
+    try:
+        # Extraer datos del request
+        dataset_name = request.dataset_name
+        X = pd.DataFrame(request.X)
+        y = pd.Series(request.y)
 
-                logger.info(f"resultados:: aaaa {results}")
-                logger.info(f"✅ Entrenamiento completado. Modelos: {len(results)}")
-                filtered_results = dict()
-                
-                for key, value in results.items():
-                    entry = { x:y for x,y in value.items() if x != 'model'}
-                    filtered_results[key] = entry
-                return filtered_results
-            else:
-                logger.warning("⚠️ No se obtuvieron resultados del entrenamiento")
-                
-        except Exception as e:
-            logger.error(f"❌ Error en entrenamiento: {e}", exc_info=True)
+        # Validar que X y y no estén vacíos
+        if X.empty or y.empty:
+            raise HTTPException(status_code=400, detail="Los datos de entrenamiento no pueden estar vacíos.")
 
-    a =train_task()
-    return {
-        "message": "Entrenamiento completado",
-        "results": a
-    }
+        # Aquí puedes agregar la lógica para el entrenamiento usando los datos recibidos
+        trainer = get_trainer()
+        results = trainer.train_models_distributed(
+            X=X,
+            y=y,
+            task_type=request.task_type,
+            selected_models=request.selected_models,
+            test_size=request.test_size
+        )
+
+        return results
+    except Exception as e:
+        logger.error(f"Error en el entrenamiento: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
