@@ -160,7 +160,7 @@ def train_model_remote(model, model_name, X_train_ref, y_train_ref, X_test_ref, 
         y_test = y_test_ref
         
         # Validación de datos de entrada
-        if np.isnan(X_train).any() or np.isnan(X_test).any():
+        if np.isnan(X_train.values).any() or np.isnan(X_test.values).any():
             raise ValueError("Datos contienen NaN después del preprocesamiento")
             
         # Pipeline completo con imputación

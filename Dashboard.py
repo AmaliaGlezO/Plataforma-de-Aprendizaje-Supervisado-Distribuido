@@ -148,107 +148,119 @@ def main():
         "Cluster Info", "Advanced"
     ])
     
-    # Models tab
+   
+    
     with tab1:
-        st.header("Model Management")
-        
-        # List models
-        if st.button("Refresh Models"):
-            st.session_state.models = make_get_request("/models")
-        
-        if 'models' not in st.session_state:
-            st.session_state.models = make_get_request("/models")
-        
-        if st.session_state.models:
-            st.write(f"Found {len(st.session_state.models)} models")
-            
-            # Model selection
-            model_names = [m['name'] for m in st.session_state.models]
-            selected_model = st.selectbox("Select a model", model_names)
-            
-            # Model details
-            if selected_model:
-                model_details = make_get_request(f"/models/{selected_model}")
-                if model_details:
-                    display_model_info(model_details)
-                    
-                    # Delete button
-                    if st.button("Delete Model"):
-                        result = requests.delete(f"{URL_BASE_API}/models/{selected_model}")
-                        if result.status_code == 200:
-                            st.success(f"Model {selected_model} deleted successfully")
-                            st.session_state.models = make_get_request("/models")
-                        else:
-                            st.error(f"Error deleting model: {result.text}")
-        
-        # Nueva sección de entrenamiento en el mismo tab
+        # ---------------------------------
+        # 2️⃣  ENTRENAMIENTO DE MODELOS
+        # ---------------------------------
         st.header("Entrenamiento de Modelos")
-        uploaded_file = st.file_uploader("Sube tu dataset CSV", type=["csv"])
+
+        uploaded_file = st.file_uploader("Sube tu dataset CSV", type=["csv"], key="csv_uploader_tab1")
+
         if uploaded_file is not None:
             df = pd.read_csv(uploaded_file)
             st.write("Dataset cargado:")
             st.dataframe(df)
 
-            # Selección de la columna objetivo
-            target_column = st.selectbox("Selecciona la columna objetivo:", df.columns)
+            limpiar = st.checkbox(
+                "Limpiar dataset automáticamente (eliminar columnas categóricas, columnas datetime y filas con valores nulos)",
+                key="auto_clean_checkbox_tab1")
 
-            # Eliminar valores nulos
-            df = df.dropna(subset=[target_column])
-            st.write("Valores nulos eliminados. Dataset limpio:")
-            st.dataframe(df)
+            if limpiar:
+                cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+                datetime_cols = []
+                for col in df.columns:
+                    parsed = pd.to_datetime(df[col], errors="coerce", utc=True)
+                    if parsed.notna().any():
+                        datetime_cols.append(col)
 
-            # Obtener modelos disponibles
-            algorithms = make_get_request("/algorithms")
-            if algorithms:
-                all_algorithms = []
-                if algorithms['algorithms']['regression']:
-                    all_algorithms.extend([
-                        f"Regression: {name}"
-                        for name in algorithms['algorithms']['regression']
-                    ])
-                if algorithms['algorithms']['classification']:
-                    all_algorithms.extend([
-                        f"Classification: {name}"
-                        for name in algorithms['algorithms']['classification']
-                    ])
-                
-                selected_algorithms = st.multiselect(
-                    "Selecciona los modelos para entrenar (deja vacío para todos)",
-                    all_algorithms
-                )
-                
-                # Determinar el tipo de tarea
-                task_type = "both"  # Por defecto
-                if selected_algorithms:
-                    task_types = set()
-                    for alg in selected_algorithms:
-                        if "Regression" in alg:
-                            task_types.add("regression")
-                        elif "Classification" in alg:
-                            task_types.add("classification")
-                    task_type = "both" if len(task_types) > 1 else task_types.pop()
-
-            # Botón de envío para iniciar el entrenamiento
-            submit_train = st.button("Iniciar Entrenamiento")
-            if submit_train:
-                X = df.drop(columns=[target_column])
-                y = df[target_column]
-                # Verificar si hay valores NaN en X y y
-                if X.isnull().values.any() or y.isnull().values.any():
-                    st.error("Los datos de entrada contienen valores NaN. Por favor, limpia el dataset antes de continuar.")
+                cols_to_drop = list(set(cat_cols + datetime_cols))
+                if cols_to_drop:
+                    df = df.drop(columns=cols_to_drop)
+                    st.info(f"Columnas eliminadas: {cols_to_drop}")
                 else:
-                    training_request = {
-                        "task_type": task_type,
-                        "selected_models": selected_algorithms,
-                        "dataset_name": uploaded_file.name,
-                        "X": X.to_dict(orient='records'),
-                        "y": y.tolist()
-                    }
-                    response = make_post_request("/train", training_request)
-                    if response:
-                        st.success("Entrenamiento iniciado!")
-                        st.json(response)
-    
+                    st.info("No se encontraron columnas categóricas ni datetime para eliminar.")
+
+            # Selección de columna objetivo
+            target_column = st.selectbox("Selecciona la columna objetivo:", df.columns, key="target_column_select_tab1")
+
+            # Selección de variables de entrenamiento
+            feature_columns = st.multiselect("Selecciona las columnas de entrenamiento:",
+                                            [col for col in df.columns if col != target_column],
+                                            key="feature_columns_select_tab1")
+
+            if target_column and feature_columns:
+                df = df.dropna(subset=feature_columns + [target_column])
+                st.info(f"Filas eliminadas por NaN en variables seleccionadas: {len(df)} restantes")
+                st.write("Dataset limpio:")
+                st.dataframe(df)
+
+                test_size = st.slider(
+                    "Test Size Ratio",
+                    min_value=0.1,
+                    max_value=0.5,
+                    value=0.3,
+                    step=0.05,
+                    key="test_size_slider_tab1")
+                
+
+                algorithms = make_get_request("/algorithms")
+                if algorithms:
+                    all_algorithms = []
+                    if algorithms['algorithms']['regression']:
+                        all_algorithms.extend([
+                            f"Regression: {name}" for name in algorithms['algorithms']['regression']
+                        ])
+                    if algorithms['algorithms']['classification']:
+                        all_algorithms.extend([
+                            f"Classification: {name}" for name in algorithms['algorithms']['classification']
+                        ])
+
+                    selected_algorithms = st.multiselect(
+                        "Selecciona los modelos para entrenar (deja vacío para todos)",
+                        all_algorithms,
+                        key="alg_multiselect_tab1")
+
+                    task_type = "both"
+                    if selected_algorithms:
+                        task_types = set(
+                            "regression" if "Regression" in alg else "classification" for alg in selected_algorithms
+                        )
+                        task_type = "both" if len(task_types) > 1 else task_types.pop()
+
+                    selected_models = [
+                        alg.split(": ")[1] 
+                        for alg in selected_algorithms
+                    ] if selected_algorithms else None
+            
+
+                if st.button("Iniciar Entrenamiento", key="start_training_tab1"):
+                    X = df[feature_columns]
+                    y = df[target_column]
+
+                    if X.isnull().values.any() or y.isnull().values.any():
+                        st.error("Los datos de entrada contienen valores NaN. Por favor, limpia el dataset antes de continuar.")
+                    else:
+                        training_request = {
+                            "task_type": task_type,
+                            "selected_models": selected_models,
+                            "dataset_name": uploaded_file.name,
+                            "X": X.to_dict(orient="records"),
+                            "y": y.to_dict(),
+                            "test_size": test_size,
+                        }
+                        response = make_post_request("/train", training_request)
+                        if response:
+                            st.success("Entrenamiento iniciado!")
+                            st.json(response) 
+
+        if st.button("View Training Results", key="view_training_results_tab1"):
+            results = make_get_request("/training/results")
+            if results:
+                display_training_results(results)
+
+
     with tab2:
         st.header("Model Training")
         

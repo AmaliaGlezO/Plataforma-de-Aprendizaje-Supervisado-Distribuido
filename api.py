@@ -56,12 +56,10 @@ class BatchPredictionRequest(BaseModel):
     return_probabilities: bool = Field(False, description="Devolver probabilidades para clasificación")
 
 class TrainingRequest(BaseModel):
-    
     task_type: str = Field("both", description="Tipo de tarea: 'regression', 'classification', 'both'")
     selected_models: Optional[List[str]] = Field(None, example=["RandomForest", "Ridge"])
     dataset_name: str = Field("datos_electricos.csv", description="Nombre del dataset")
-  
-    X:Dict = Field(...,description='datos de entrenamiento')
+    X:List[Dict] = Field(...,description='datos de entrenamiento')
     y:Dict = Field(...,description='target')
     test_size: float = Field(0.3, ge=0.1, le=0.5, description="Proporción para test")
 
@@ -320,7 +318,7 @@ async def train_models(request: TrainingRequest):
         if X.empty or y.empty:
             raise HTTPException(status_code=400, detail="Los datos de entrenamiento no pueden estar vacíos.")
 
-        # Aquí puedes agregar la lógica para el entrenamiento usando los datos recibidos
+        # Lógica de entrenamiento
         trainer = get_trainer()
         results = trainer.train_models_distributed(
             X=X,
@@ -329,11 +327,38 @@ async def train_models(request: TrainingRequest):
             selected_models=request.selected_models,
             test_size=request.test_size
         )
+        logger.info(results)
 
-        return results
+        if results:
+            # Guardar modelos y resultados si es necesario
+            # trainer.save_models(MODELS_DIR)
+            # results_file = os.path.join(TRAINING_RESULTS_DIR, "train_results.json")
+            # trainer.save_results(results_file)
+
+            logger.info(f"resultados:: aaaa {results}")
+            logger.info(f"✅ Entrenamiento completado. Modelos: {len(results)}")
+            filtered_results = dict()
+            for key, value in results.items():
+                entry = {x: y for x, y in value.items() if x != 'model'}
+                filtered_results[key] = entry
+            return {
+                "message": "Entrenamiento completado",
+                "results": filtered_results
+            }
+        else:
+            logger.warning("⚠️ No se obtuvieron resultados del entrenamiento")
+            return {
+                "message": "No se obtuvieron resultados del entrenamiento",
+                "results": {}
+            }
+
     except Exception as e:
-        logger.error(f"Error en el entrenamiento: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Error en entrenamiento: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error en entrenamiento: {str(e)}")
+
+
+
+
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
